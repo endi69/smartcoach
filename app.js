@@ -40,8 +40,8 @@ const STRENGTH={
   lowerA:{
     id:'lowerA',title:'Lower A · forza di base',short:'Lower A',mins:'50–60',focus:'Gambe + hinge + gluteo medio',
     exercises:[
-      ex('squat','Squat pattern',3,8,12,{home:['Goblet squat','Tempo goblet squat','Split squat'],gym:['Leg press','Back squat','Hack squat'],increment:2.5,rest:120}),
-      ex('rdl','Hip hinge',3,8,10,{home:['DB Romanian deadlift','Single-leg RDL'],gym:['Romanian deadlift','DB Romanian deadlift'],increment:2.5,rest:120}),
+      ex('squat','Squat pattern',3,8,12,{home:['KB/DB goblet squat','Tempo goblet squat','Split squat'],gym:['Leg press','Back squat','Hack squat'],increment:2.5,rest:120}),
+      ex('rdl','Hip hinge',3,8,10,{home:['KB/DB Romanian deadlift','Single-leg RDL'],gym:['Romanian deadlift','DB Romanian deadlift'],increment:2.5,rest:120}),
       ex('bulgarian','Unilaterale',3,8,10,{home:['Bulgarian split squat','Reverse lunge'],gym:['Bulgarian split squat','Reverse lunge'],increment:2,rest:90,side:true}),
       ex('calf','Polpacci',3,12,15,{home:['Single-leg calf raise','Calf raise'],gym:['Standing calf raise','Seated calf raise'],increment:2.5,rest:60}),
       ex('glutemed','Gluteo medio',2,12,20,{home:['Side-lying hip abduction','Band lateral walk'],gym:['Cable hip abduction','Abductor machine'],increment:1,rest:45,side:true}),
@@ -63,7 +63,7 @@ const STRENGTH={
     id:'lowerB',title:'Lower B · posterior chain',short:'Lower B',mins:'50–60',focus:'Glutei + femorali + lower back',
     exercises:[
       ex('squat2','Squat pattern',3,8,12,{home:['Goblet squat','Front-foot elevated split squat'],gym:['Back squat','Hack squat','Leg press'],increment:2.5,rest:120}),
-      ex('hipthrust','Hip thrust',3,10,15,{home:['DB hip thrust','Single-leg hip thrust'],gym:['Barbell hip thrust','Hip thrust machine'],increment:2.5,rest:120}),
+      ex('hipthrust','Hip thrust',3,10,15,{home:['KB/DB hip thrust','Single-leg hip thrust'],gym:['Barbell hip thrust','Hip thrust machine'],increment:2.5,rest:120}),
       ex('lunge','Affondo',3,8,10,{home:['Reverse lunge','Walking lunge'],gym:['Reverse lunge','Walking lunge'],increment:2,rest:90,side:true}),
       ex('ham','Femorali',3,8,15,{home:['Single-leg RDL','Slider leg curl'],gym:['Leg curl','Romanian deadlift'],increment:2,rest:90}),
       ex('backext','Lower back',3,10,15,{home:['Bird dog row','Hip hinge isometrico'],gym:['Back extension','Reverse hyper'],increment:2,rest:75}),
@@ -75,6 +75,7 @@ const STRENGTH={
 const CARDIO={
   z2short:{id:'z2short',type:'cardio',title:'Z2 · base aerobica',short:'Z2',mins:35,minMinutes:30,maxMinutes:40,focus:'Facile, conversazionale, senza inseguire il passo'},
   z2long:{id:'z2long',type:'cardio',title:'Z2 · endurance facile',short:'Z2 easy',mins:45,minMinutes:35,maxMinutes:50,focus:'Costruzione aerobica a bassa fatica'},
+  runQuality:{id:'runQuality',type:'cardio',quality:true,title:'Corsa · qualità controllata',short:'Corsa qualità',mins:38,minMinutes:35,maxMinutes:45,focus:'10′ facile + 6×1′ brillante / 2′ facile + 10′ facile'},
   recovery:{id:'recovery',type:'recovery',title:'Recupero / mobilità',short:'Recupero',mins:20,focus:'Camminata facile + mobilità anche/schiena + respirazione'}
 };
 
@@ -122,20 +123,20 @@ function historyOn(date){return state.history.filter(h=>(h.date||'').slice(0,10)
 function isDone(date,sid){return historyOn(date).some(h=>h.sessionId===sid||(!h.sessionId&&h.name===sessionById(sid).title))}
 
 function latestReadiness(date){
-  return state.readiness[date]||{sleepHours:null,sleepQuality:3,energy:3,soreness:2,stress:3,rhr:null,hrv:null,corosRecovery:state.coros.recovery??null};
+  return state.readiness[date]||{sleepHours:null,sleepQuality:null,energy:null,soreness:null,stress:null,availableMinutes:50,rhr:null,hrv:null,temperatureDelta:null,corosRecovery:state.coros.recovery??null};
 }
 function scoreReadiness(date){
   const r=latestReadiness(date), vals=[];
   if(r.sleepHours!=null){const h=+r.sleepHours;vals.push(h>=7&&h<=9?100:h>=6?75:h>=5?50:25)}
-  vals.push(clamp((+r.sleepQuality||3)*20,0,100));
-  vals.push(clamp((+r.energy||3)*20,0,100));
-  vals.push(clamp((6-(+r.soreness||2))*20,0,100));
-  vals.push(clamp((6-(+r.stress||3))*20,0,100));
+  if(r.sleepQuality!=null)vals.push(clamp(+r.sleepQuality*20,0,100));
+  if(r.energy!=null)vals.push(clamp(+r.energy*20,0,100));
+  if(r.soreness!=null)vals.push(clamp((6-(+r.soreness))*20,0,100));
+  if(r.stress!=null)vals.push(clamp((6-(+r.stress))*20,0,100));
   if(r.rhr!=null&&state.coros.restingHr){const d=+r.rhr-state.coros.restingHr;vals.push(d<=0?100:d<=3?85:d<=6?65:d<=10?40:20)}
   if(r.hrv!=null&&state.coros.hrvBaseline){const q=+r.hrv/state.coros.hrvBaseline;vals.push(q>=1?100:q>=.9?82:q>=.8?64:q>=.7?45:25)}
   if(r.corosRecovery!=null)vals.push(clamp(+r.corosRecovery,0,100));
   if(r.temperatureDelta!=null){const t=Math.abs(+r.temperatureDelta);vals.push(t<.25?100:t<.5?80:t<.8?55:30)}
-  let score=Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
+  let score=vals.length?Math.round(vals.reduce((a,b)=>a+b,0)/vals.length):70;
   const sh=shiftOn(date);if(sh)score-=sh.load>=4?24:sh.load>=3?16:sh.load===2?7:3;
   return clamp(score,0,100);
 }
@@ -151,6 +152,7 @@ function recommendation(date){
   else if(shift?.load===2){adjust='Compatto';reason=`Turno ${shift.title}: seduta più breve`;setDelta=-1;cardioFactor=.8}
   const avail=+(latestReadiness(date).availableMinutes||0);
   if(session.type!=='recovery'&&avail&&avail<=35&&score>=55){adjust=`Compatto ${avail} min`;reason=`Tempo disponibile: ${avail} min`;setDelta=Math.min(setDelta,-1);cardioFactor=Math.min(cardioFactor,avail<=25?.65:.8)}
+  if(!currentReentry(date)&&base.id==='z2short'&&session===base&&score>=75&&(!shift||shift.load<=1)){session=CARDIO.runQuality;adjust='Qualità controllata';reason='Dopo la fase di rientro: primo stimolo di velocità, senza massimale'}
   if(base.type==='recovery'&&session===base){adjust='Recupero';reason='Giorno di recupero programmato'}
   return {base,session,score,shift,adjust,reason,setDelta,cardioFactor};
 }
@@ -178,7 +180,7 @@ function todayView(date=state.selectedDate||dateKey(TODAY())){
 
     <section class="card">
       <div class="row"><div><h3>Check-in rapido</h3><span class="muted small">Aggiorna il consiglio di oggi</span></div><span class="pill">${r.sleepHours?`${r.sleepHours} h sonno`:'sonno –'}</span></div>
-      <div class="grid3" style="margin-top:12px"><div class="metric"><small>Energia</small><b>${r.energy||3}/5</b></div><div class="metric"><small>Dolori</small><b>${r.soreness||2}/5</b></div><div class="metric"><small>Stress</small><b>${r.stress||3}/5</b></div></div>
+      <div class="grid3" style="margin-top:12px"><div class="metric"><small>Energia</small><b>${r.energy??'–'}/5</b></div><div class="metric"><small>Dolori</small><b>${r.soreness??'–'}/5</b></div><div class="metric"><small>Stress</small><b>${r.stress??'–'}/5</b></div></div>
     </section>
 
     ${done.length?`<section class="card"><h3>Registrato oggi</h3>${done.map(historyLine).join('')}</section>`:''}
@@ -232,7 +234,7 @@ function trainingHub(){
   setTab('train');setHeader('Training','Scegli una seduta o sostituisci casa/palestra');
   app.innerHTML=`<div class="stack"><section class="card"><div class="segment"><button class="${state.place==='CASA'?'active':''}" onclick="setPlace('CASA')">Casa</button><button class="${state.place==='PALESTRA'?'active':''}" onclick="setPlace('PALESTRA')">Palestra</button></div></section>
     ${Object.values(STRENGTH).map(s=>`<button class="day" onclick="openSession('${s.id}','${dateKey(TODAY())}')"><div><div class="dow">FORZA</div><div class="date">${s.exercises.length}</div></div><div><b>${esc(s.title)}</b><div class="muted tiny">${esc(s.focus)} · ${s.mins} min</div></div><span>›</span></button>`).join('')}
-    ${[CARDIO.z2short,CARDIO.z2long].map(s=>`<button class="day" onclick="openSession('${s.id}','${dateKey(TODAY())}')"><div><div class="dow">CARDIO</div><div class="date">Z2</div></div><div><b>${esc(s.title)}</b><div class="muted tiny">${s.minMinutes}–${s.maxMinutes} min · corsa o cyclette</div></div><span>›</span></button>`).join('')}
+    ${[CARDIO.z2short,CARDIO.z2long,CARDIO.runQuality].map(s=>`<button class="day" onclick="openSession('${s.id}','${dateKey(TODAY())}')"><div><div class="dow">CARDIO</div><div class="date">Z2</div></div><div><b>${esc(s.title)}</b><div class="muted tiny">${s.minMinutes}–${s.maxMinutes} min · corsa o cyclette</div></div><span>›</span></button>`).join('')}
     <button class="day" onclick="openSession('recovery','${dateKey(TODAY())}')"><div><div class="dow">EASY</div><div class="date">20</div></div><div><b>Recupero / mobilità</b><div class="muted tiny">Anche, lower back, camminata</div></div><span>›</span></button>
   </div>`;
 }
@@ -270,7 +272,7 @@ function openSession(id,date=state.selectedDate,rec=null){
   if(s.type==='cardio')return renderCardio(s,date,rec||recommendation(date));
   if(s.type==='recovery')return renderRecovery(date);
   const adaptive=rec||recommendation(date),reduced=adaptive.setDelta<0;
-  app.innerHTML=`<div class="stack"><section class="card"><div class="row"><div><h2>${esc(s.title)}</h2><p class="muted small" style="margin:0">${esc(s.focus)} · RIR target ${state.settings.reentry?'2–4':'1–3'}</p></div><span class="pill ${reduced?'warn':''}">${reduced?'volume ridotto':'volume normale'}</span></div>
+  app.innerHTML=`<div class="stack"><section class="card"><div class="row"><div><h2>${esc(s.title)}</h2><p class="muted small" style="margin:0">${esc(s.focus)} · RIR target ${currentReentry(date)?'2–4':'1–3'}</p></div><span class="pill ${reduced?'warn':''}">${reduced?'volume ridotto':'volume normale'}</span></div>
     <div class="segment" style="margin-top:14px"><button class="${state.place==='CASA'?'active':''}" onclick="changeWorkoutPlace('CASA','${id}','${date}')">Casa</button><button class="${state.place==='PALESTRA'?'active':''}" onclick="changeWorkoutPlace('PALESTRA','${id}','${date}')">Palestra</button></div></section>
     <section class="card" id="exerciseList">${s.exercises.map((e,i)=>renderExercise(e,i,s,date,reduced)).join('')}</section>
     <section class="card"><label>Note sessione<textarea id="sessionNote" placeholder="Dolori, sensazioni, tecnica, modifiche…"></textarea></label><div class="actions"><button class="btn secondary" onclick="startTimer(120)">Timer 2:00</button><button class="btn" onclick="saveStrength('${id}','${date}')">Salva sessione</button></div></section></div>`;
@@ -294,8 +296,8 @@ function num(v){return v===''||v==null?null:+v}
 
 function renderCardio(s,date,rec){
   const mins=Math.round((s.mins||35)*(rec.cardioFactor||1));
-  app.innerHTML=`<div class="stack"><section class="card hero"><div class="row"><div><h2>${esc(s.title)}</h2><p class="muted small" style="margin:0">${esc(s.focus)}</p></div><span class="pill">${s.minMinutes}–${s.maxMinutes} min</span></div><div class="notice goodbox" style="margin-top:14px">Usa la <strong>Z2 del tuo COROS</strong> oppure il talk test: respirazione controllata, conversazione possibile, RPE circa 2–3/10. Non inseguire il passo.</div></section>
-  <section class="card"><label>Modalità<select id="cardioMode"><option value="run" ${state.settings.cardioDefault==='run'?'selected':''}>Corsa</option><option value="bike" ${state.settings.cardioDefault==='bike'?'selected':''}>Cyclette</option><option value="course">Corso endurance</option><option value="walk">Camminata veloce</option></select></label>
+  app.innerHTML=`<div class="stack"><section class="card hero"><div class="row"><div><h2>${esc(s.title)}</h2><p class="muted small" style="margin:0">${esc(s.focus)}</p></div><span class="pill">${s.minMinutes}–${s.maxMinutes} min</span></div><div class="notice goodbox" style="margin-top:14px">${s.quality?'<strong>Qualità controllata:</strong> 10′ facile, 6×1′ brillante a RPE 6–7 con 2′ facili, poi 10′ facile. Se le gambe sono pesanti, torna a Z2.':'Usa la <strong>Z2 del tuo COROS</strong> oppure il talk test: respirazione controllata, conversazione possibile, RPE circa 2–3/10. Non inseguire il passo.'}</div></section>
+  <section class="card"><label>Modalità<select id="cardioMode"><option value="run" ${s.quality||state.settings.cardioDefault==='run'?'selected':''}>Corsa</option><option value="bike" ${!s.quality&&state.settings.cardioDefault==='bike'?'selected':''}>Cyclette</option><option value="course" ${s.quality?'disabled':''}>Corso endurance</option><option value="walk" ${s.quality?'disabled':''}>Camminata veloce</option></select></label>
   <div class="form-grid three" style="margin-top:10px"><label>Minuti<input id="cardioMinutes" type="number" value="${mins}"></label><label>Km<input id="cardioKm" type="number" step="0.1"></label><label>FC media<input id="cardioHr" type="number"></label><label>RPE<input id="cardioRpe" type="number" step="0.5" value="3" min="1" max="10"></label><label>W medi<input id="cardioWatts" type="number" placeholder="se disponibili"></label><label>Z2 rispettata<select id="cardioZ2"><option value="yes">Sì</option><option value="mostly">Quasi tutta</option><option value="no">No</option></select></label></div>
   <label style="margin-top:10px">Note<textarea id="cardioNote" placeholder="Sensazioni, percorso, resistenza cyclette…"></textarea></label>
   <div class="actions"><button class="btn" onclick="saveCardio('${s.id}','${date}')">Salva cardio</button></div></section></div>`;
