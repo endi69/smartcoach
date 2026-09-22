@@ -1,1 +1,20 @@
-{"name":"SmartCoach","short_name":"SmartCoach","start_url":"./","display":"standalone","background_color":"#0b1220","theme_color":"#111827","description":"Hybrid strength and aerobic coaching PWA"}
+{
+  "name": "SmartCoach",
+  "short_name": "SmartCoach",
+  "id": "/",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1220",
+  "theme_color": "#0b1220",
+  "description": "Forza, ipertrofia, base aerobica, readiness e progressione.",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
