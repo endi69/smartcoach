@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='2.0.0';
+const APP_VERSION='2.0.1';
 const STORE_KEY='sc-state';
 const TODAY=()=>new Date();
 const pad=n=>String(n).padStart(2,'0');
@@ -23,7 +23,10 @@ const PROFILE={
 const COROS_DEFAULT={
   synced:'2026-09-23',vo2max:50,runningLevel:71,thresholdPace:'5:27/km',
   shortLoad:0,longLoad:36,loadRatio:0,recovery:100,recoveryText:'Heavy training allowed',
-  restingHr:57,hrvBaseline:42,recentActivities:0
+  restingHr:57,hrvBaseline:42,recentActivities:0,
+  sleepHoursLast:null,sleepScoreLast:null,sleepHrvLast:null,rhrLatest:null,
+  sleepDataDate:null,hrvDataDate:null,
+  dataNote:'COROS al momento non restituisce sonno, HRV sonno o RHR recenti; sono disponibili baseline HRV 42 ms e FC riposo 57 bpm.'
 };
 
 const SHIFT_DEFAULT=[
@@ -176,6 +179,9 @@ function todayView(date=state.selectedDate||dateKey(TODAY())){
 
     <section class="grid3">
       <div class="metric"><small>COROS recovery</small><b>${state.coros.recovery??'–'}%</b></div>
+      <div class="metric"><small>Sonno</small><b>${r.sleepHours??state.coros.sleepHoursLast??'–'}${(r.sleepHours??state.coros.sleepHoursLast)!=null?' h':''}</b></div>
+      <div class="metric"><small>HRV sonno</small><b>${r.hrv??state.coros.sleepHrvLast??'–'}${(r.hrv??state.coros.sleepHrvLast)!=null?' ms':''}</b><span class="tiny muted">baseline ${state.coros.hrvBaseline??'–'} ms</span></div>
+      <div class="metric"><small>FC riposo</small><b>${r.rhr??state.coros.rhrLatest??'–'}${(r.rhr??state.coros.rhrLatest)!=null?' bpm':''}</b><span class="tiny muted">baseline ${state.coros.restingHr??'–'}</span></div>
       <div class="metric"><small>VO₂max</small><b>${state.coros.vo2max??'–'}</b></div>
       <div class="metric"><small>Carico 7g</small><b>${state.coros.shortLoad??'–'}</b></div>
     </section>
@@ -369,28 +375,42 @@ function nutritionPage(){
 function saveNutrition(d){state.nutritionLogs[d]={protein:numOrNull('nutProtein'),water:numOrNull('nutWater'),meals:numOrNull('nutMeals'),plants:numOrNull('nutPlants'),note:val('nutNote')||''};save();toast('Nutrizione salvata')}
 
 function sleepPage(){
-  const d=dateKey(TODAY()),log=state.sleepLogs[d]||state.readiness[d]||{};
-  setHeader('Sonno','Ore, qualità e impatto sul training');
+  const d=dateKey(TODAY()),log=state.sleepLogs[d]||state.readiness[d]||{},r=latestReadiness(d);
+  setHeader('Sonno','Sonno, HRV e FC a riposo');
   const recent=Object.entries(state.sleepLogs).sort((a,b)=>a[0].localeCompare(b[0])).slice(-7);
   const avg=recent.length?round(recent.reduce((a,[,x])=>a+(+x.hours||0),0)/recent.length,1):null;
+  const sleepVal=log.hours??log.sleepHours??state.coros.sleepHoursLast;
+  const hrvVal=r.hrv??state.coros.sleepHrvLast;
+  const rhrVal=r.rhr??state.coros.rhrLatest;
   app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="backMore()">‹ Altro</button>
-  <section class="grid2"><div class="metric"><small>Media 7 log</small><b>${avg??'–'} h</b></div><div class="metric"><small>HRV baseline COROS</small><b>${state.coros.hrvBaseline??'–'} ms</b></div></section>
-  <section class="card"><h3>Oggi</h3><div class="form-grid"><label>Ore di sonno<input id="sleepHours" type="number" step="0.25" min="0" max="14" value="${log.hours??log.sleepHours??''}"></label><label>Qualità 1–5<select id="sleepQuality">${opts5(log.quality??log.sleepQuality??3)}</select></label></div><button class="btn" style="margin-top:12px" onclick="saveSleep('${d}')">Salva sonno</button></section>
-  <section class="card"><h3>Ultimi dati</h3>${recent.length?recent.slice().reverse().map(([day,x])=>`<div class="history-item"><div class="row"><b>${fmtDate(day,{weekday:'short',day:'numeric',month:'short'})}</b><span>${x.hours??'–'} h · qualità ${x.quality??'–'}/5</span></div></div>`).join(''):'<p class="muted small">Nessun dato locale ancora.</p>'}</section></div>`;
+  <section class="grid2">
+    <div class="metric"><small>Sonno ultimo</small><b>${sleepVal??'–'}${sleepVal!=null?' h':''}</b></div>
+    <div class="metric"><small>HRV sonno</small><b>${hrvVal??'–'}${hrvVal!=null?' ms':''}</b><span class="tiny muted">baseline COROS ${state.coros.hrvBaseline??'–'} ms</span></div>
+    <div class="metric"><small>FC riposo</small><b>${rhrVal??'–'}${rhrVal!=null?' bpm':''}</b><span class="tiny muted">baseline COROS ${state.coros.restingHr??'–'} bpm</span></div>
+    <div class="metric"><small>Media sonno log</small><b>${avg??'–'}${avg!=null?' h':''}</b></div>
+  </section>
+  <section class="notice warnbox">${esc(state.coros.dataNote||'Se il dato COROS non è disponibile, puoi inserirlo manualmente qui.')}</section>
+  <section class="card"><h3>Oggi</h3><div class="form-grid">
+    <label>Ore di sonno<input id="sleepHours" type="number" step="0.25" min="0" max="14" value="${log.hours??log.sleepHours??''}"></label>
+    <label>Qualità 1–5<select id="sleepQuality">${opts5(log.quality??log.sleepQuality??3)}</select></label>
+    <label>HRV sonno ms<input id="sleepHrv" type="number" min="5" max="300" value="${r.hrv??''}" placeholder="baseline ${state.coros.hrvBaseline??'–'}"></label>
+    <label>FC riposo bpm<input id="sleepRhr" type="number" min="30" max="150" value="${r.rhr??''}" placeholder="baseline ${state.coros.restingHr??'–'}"></label>
+  </div><button class="btn" style="margin-top:12px" onclick="saveSleep('${d}')">Salva sonno + HRV</button></section>
+  <section class="card"><h3>Ultimi dati locali</h3>${recent.length?recent.slice().reverse().map(([day,x])=>`<div class="history-item"><div class="row"><b>${fmtDate(day,{weekday:'short',day:'numeric',month:'short'})}</b><span>${x.hours??'–'} h · HRV ${x.hrv??'–'} ms · RHR ${x.rhr??'–'}</span></div></div>`).join(''):'<p class="muted small">Nessun dato locale ancora.</p>'}</section></div>`;
 }
 function saveSleep(d){
-  const hours=numOrNull('sleepHours'),quality=+val('sleepQuality');
-  state.sleepLogs[d]={hours,quality};
+  const hours=numOrNull('sleepHours'),quality=+val('sleepQuality'),hrv=numOrNull('sleepHrv'),rhr=numOrNull('sleepRhr');
+  state.sleepLogs[d]={hours,quality,hrv,rhr};
   const old=latestReadiness(d);
-  state.readiness[d]={...old,sleepHours:hours,sleepQuality:quality};
-  save();toast('Sonno salvato');sleepPage();
+  state.readiness[d]={...old,sleepHours:hours,sleepQuality:quality,hrv,rhr};
+  save();toast('Sonno e HRV salvati');sleepPage();
 }
 
 function connectionsPage(){
   setHeader('Connessioni','Stato dati e fonti');
   app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="backMore()">‹ Altro</button>
   <section class="card hero"><div class="row"><div><h2>COROS</h2><p class="muted small" style="margin:0">Snapshot importato ${esc(state.coros.synced||'–')}</p></div><span class="pill good">connesso in ChatGPT</span></div>
-    <div class="grid2" style="margin-top:14px"><div class="metric"><small>VO₂max</small><b>${state.coros.vo2max??'–'}</b></div><div class="metric"><small>Soglia</small><b>${state.coros.thresholdPace??'–'}</b></div><div class="metric"><small>Recovery</small><b>${state.coros.recovery??'–'}%</b></div><div class="metric"><small>Load ratio</small><b>${state.coros.loadRatio??'–'}</b></div></div>
+    <div class="grid2" style="margin-top:14px"><div class="metric"><small>VO₂max</small><b>${state.coros.vo2max??'–'}</b></div><div class="metric"><small>Soglia</small><b>${state.coros.thresholdPace??'–'}</b></div><div class="metric"><small>Recovery</small><b>${state.coros.recovery??'–'}%</b></div><div class="metric"><small>Load ratio</small><b>${state.coros.loadRatio??'–'}</b></div><div class="metric"><small>Sonno recente</small><b>${state.coros.sleepHoursLast??'–'}${state.coros.sleepHoursLast!=null?' h':''}</b></div><div class="metric"><small>HRV sonno recente</small><b>${state.coros.sleepHrvLast??'–'}${state.coros.sleepHrvLast!=null?' ms':''}</b><span class="tiny muted">baseline ${state.coros.hrvBaseline??'–'} ms</span></div></div>
     <div class="notice" style="margin-top:12px">La PWA statica non contiene le credenziali COROS: i dati vengono letti in modo sicuro tramite la connessione COROS di ChatGPT e poi riportati nell'app come snapshot. Non inserire token o password nell'app.</div>
   </section>
   <section class="card"><h3>Google Calendar</h3><p class="muted small">Sono stati importati i turni attualmente visibili dal 25 al 30 settembre e usati come carico extra per adattare il training. Puoi aggiungerli o correggerli qui sotto.</p><button class="btn secondary" onclick="recoveryPage()">Gestisci turni</button></section>
