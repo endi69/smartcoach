@@ -238,3 +238,123 @@ function choiceFor(exercise,place){
   const idx=state.exerciseChoice[`${exercise.id}-${place}`]||0;return {arr,idx:idx%arr.length,name:arr[idx%arr.length]};
 }
 function swapExercise(exId,sessionId,place,date){
+  const exo=STRENGTH[sessionId].exercises.find(x=>x.id===exId),key=`${exId}-${place}`,arr=place==='CASA'?exo.home:exo.gym;
+  state.exerciseChoice[key]=((state.exerciseChoice[key]||0)+1)%arr.length;save();openSession(sessionId,date);
+}
+function previousExercise(exId){
+  for(const h of state.history){const e=h.exercises?.find(x=>x.id===exId);if(e)return {entry:h,exercise:e}}
+  return null;
+}
+function progression(exercise){
+  const prev=previousExercise(exercise.id);if(!prev)return {text:'Prima registrazione: parti conservativo, RPE 6–7.',load:null};
+  const sets=(prev.exercise.sets||[]).filter(s=>+s.reps>0);if(!sets.length)return {text:'Nessun set valido precedente.',load:null};
+  const top=exercise.max,min=exercise.min,maxRpe=Math.max(...sets.map(s=>+s.rpe||0));
+  const allTop=sets.every(s=>+s.reps>=top),miss=sets.some(s=>+s.reps<min),weights=sets.map(s=>+s.kg).filter(n=>Number.isFinite(n)&&n>0),last=weights.length?Math.max(...weights):0;
+  if(allTop&&maxRpe<=8){const next=last?round(last+(exercise.increment||1),1):null;return {text:`Range alto completato a RPE ≤8: ${next?`prova ~${next} kg`:'aumenta leggermente difficoltà/reps'}.`,load:next}}
+  if(maxRpe>=9.5||miss){const next=last?round(last*.95,1):null;return {text:`Fatica alta o reps sotto range: ${next?`valuta ~${next} kg`:'riduci difficoltà'} e lascia 2–3 RIR.`,load:next}}
+  return {text:`Ripeti il carico e prova ad aggiungere 1 rep totale mantenendo RPE ≤8.`,load:last||null};
+}
+function lastSummary(exId){
+  const p=previousExercise(exId);if(!p)return 'nessun dato precedente';const sets=(p.exercise.sets||[]).filter(s=>s.reps);if(!sets.length)return 'nessun dato precedente';
+  return sets.map(s=>`${s.kg?`${s.kg}kg×`:''}${s.reps}${s.rpe?` @${s.rpe}`:''}`).join(' · ');
+}
+
+function openSession(id,date=state.selectedDate,rec=null){
+  const s=sessionById(id);state.selectedSession=id;state.selectedDate=date;save();setTab('train');
+  setHeader(s.short||s.title,fmtDate(date,{weekday:'long',day:'numeric',month:'long'}));
+  if(s.type==='cardio')return renderCardio(s,date,rec||recommendation(date));
+  if(s.type==='recovery')return renderRecovery(date);
+  const adaptive=rec||recommendation(date),reduced=adaptive.setDelta<0;
+  app.innerHTML=`<div class="stack"><section class="card"><div class="row"><div><h2>${esc(s.title)}</h2><p class="muted small" style="margin:0">${esc(s.focus)} · RPE target ${state.settings.reentry?'6–8':'7–8'}</p></div><span class="pill ${reduced?'warn':''}">${reduced?'volume ridotto':'volume normale'}</span></div>
+    <div class="segment" style="margin-top:14px"><button class="${state.place==='CASA'?'active':''}" onclick="changeWorkoutPlace('CASA','${id}','${date}')">Casa</button><button class="${state.place==='PALESTRA'?'active':''}" onclick="changeWorkoutPlace('PALESTRA','${id}','${date}')">Palestra</button></div></section>
+    <section class="card" id="exerciseList">${s.exercises.map((e,i)=>renderExercise(e,i,s,date,reduced)).join('')}</section>
+    <section class="card"><label>Note sessione<textarea id="sessionNote" placeholder="Dolori, sensazioni, tecnica, modifiche…"></textarea></label><div class="actions"><button class="btn secondary" onclick="startTimer(120)">Timer 2:00</button><button class="btn" onclick="saveStrength('${id}','${date}')">Salva sessione</button></div></section></div>`;
+}
+function changeWorkoutPlace(p,id,date){state.place=p;save();openSession(id,date)}
+function renderExercise(e,i,s,date,reduced){
+  const c=choiceFor(e,state.place),p=progression(e),nsets=Math.max(1,e.sets+(reduced?-1:0));
+  return `<div class="exercise" data-ex="${e.id}"><div class="exercise-head"><div><div class="exercise-name">${i+1}. ${esc(c.name)}</div><div class="target">${nsets} × ${e.min}–${e.max}${e.side?' / lato':''} · recupero ${e.rest}s</div><div class="last">Ultima: ${esc(lastSummary(e.id))}</div></div><button class="swap" onclick="swapExercise('${e.id}','${s.id}','${state.place}','${date}')">↔ variante</button></div>
+  <div class="progress-note"><strong>Coach:</strong> ${esc(p.text)}</div>
+  <div class="set-head"><span>Set</span><span>kg</span><span>reps</span><span>RPE</span><span>✓</span></div>
+  ${Array.from({length:nsets},(_,j)=>`<div class="set-row"><span class="set-no">${j+1}</span><input inputmode="decimal" type="number" step="0.5" class="kg" placeholder="${p.load??'–'}"><input inputmode="numeric" type="number" class="reps" placeholder="${e.min}-${e.max}"><input inputmode="decimal" type="number" step="0.5" min="1" max="10" class="rpe" placeholder="7"><button class="set-done" onclick="this.classList.toggle('on');this.textContent=this.classList.contains('on')?'✓':''"></button></div>`).join('')}</div>`;
+}
+function saveStrength(id,date){
+  const s=STRENGTH[id],cards=[...document.querySelectorAll('.exercise')];
+  const exercises=cards.map((card,i)=>{const e=s.exercises[i],c=choiceFor(e,state.place);return {id:e.id,name:c.name,sets:[...card.querySelectorAll('.set-row')].map(r=>({kg:num(r.querySelector('.kg').value),reps:num(r.querySelector('.reps').value),rpe:num(r.querySelector('.rpe').value)})).filter(x=>x.reps||x.kg||x.rpe)}});
+  if(!exercises.some(e=>e.sets.length)){toast('Inserisci almeno un set');return}
+  const entry={id:uid(),date:new Date(`${date}T12:00:00`).toISOString(),sessionId:id,name:s.title,type:'strength',place:state.place,readiness:scoreReadiness(date),exercises,note:val('sessionNote')||''};
+  state.history.unshift(entry);save();toast('Allenamento salvato ✓');trendView();
+}
+function num(v){return v===''||v==null?null:+v}
+
+function renderCardio(s,date,rec){
+  const mins=Math.round((s.mins||35)*(rec.cardioFactor||1));
+  app.innerHTML=`<div class="stack"><section class="card hero"><div class="row"><div><h2>${esc(s.title)}</h2><p class="muted small" style="margin:0">${esc(s.focus)}</p></div><span class="pill">${s.minMinutes}–${s.maxMinutes} min</span></div><div class="notice goodbox" style="margin-top:14px">Usa la <strong>Z2 del tuo COROS</strong> oppure il talk test: respirazione controllata, conversazione possibile, RPE circa 2–3/10. Non inseguire il passo.</div></section>
+  <section class="card"><label>Modalità<select id="cardioMode"><option value="run" ${state.settings.cardioDefault==='run'?'selected':''}>Corsa</option><option value="bike" ${state.settings.cardioDefault==='bike'?'selected':''}>Cyclette</option><option value="course">Corso endurance</option><option value="walk">Camminata veloce</option></select></label>
+  <div class="form-grid three" style="margin-top:10px"><label>Minuti<input id="cardioMinutes" type="number" value="${mins}"></label><label>Km<input id="cardioKm" type="number" step="0.1"></label><label>FC media<input id="cardioHr" type="number"></label><label>RPE<input id="cardioRpe" type="number" step="0.5" value="3" min="1" max="10"></label><label>W medi<input id="cardioWatts" type="number" placeholder="se disponibili"></label><label>Z2 rispettata<select id="cardioZ2"><option value="yes">Sì</option><option value="mostly">Quasi tutta</option><option value="no">No</option></select></label></div>
+  <label style="margin-top:10px">Note<textarea id="cardioNote" placeholder="Sensazioni, percorso, resistenza cyclette…"></textarea></label>
+  <div class="actions"><button class="btn" onclick="saveCardio('${s.id}','${date}')">Salva cardio</button></div></section></div>`;
+}
+function saveCardio(id,date){
+  const s=sessionById(id),mode=val('cardioMode'),minutes=+val('cardioMinutes');if(!minutes){toast('Inserisci la durata');return}
+  const entry={id:uid(),date:new Date(`${date}T12:00:00`).toISOString(),sessionId:id,name:s.title,type:'cardio',mode,minutes,km:numOrNull('cardioKm'),avgHr:numOrNull('cardioHr'),watts:numOrNull('cardioWatts'),rpe:numOrNull('cardioRpe'),z2:val('cardioZ2'),readiness:scoreReadiness(date),note:val('cardioNote')||''};
+  state.settings.cardioDefault=mode==='course'?state.settings.cardioDefault:mode;state.history.unshift(entry);save();toast('Cardio salvato ✓');trendView();
+}
+
+function renderRecovery(date){
+  app.innerHTML=`<div class="stack"><section class="card hero"><h2>Recupero / mobilità</h2><p class="muted">20 minuti facili. Nessun bisogno di “recuperare” gli allenamenti persi nei giorni di turno.</p></section><section class="card"><div class="exercise"><b>1. Camminata facile</b><div class="target">10–20 min · RPE 1–2</div></div><div class="exercise"><b>2. Anche + gluteo medio</b><div class="target">90/90 + abduzione leggera · 2 giri</div></div><div class="exercise"><b>3. Lower back</b><div class="target">Bird dog + cat-camel · controllo, zero dolore</div></div><div class="exercise"><b>4. Respirazione</b><div class="target">2–3 min lenta</div></div><div class="actions"><button class="btn" onclick="saveRecovery('${date}')">Segna completato</button></div></section></div>`;
+}
+function saveRecovery(date){state.history.unshift({id:uid(),date:new Date(`${date}T12:00:00`).toISOString(),sessionId:'recovery',name:'Recupero / mobilità',type:'recovery',minutes:20,readiness:scoreReadiness(date)});save();toast('Recupero registrato ✓');todayView(date)}
+
+let timerInterval=null,timerEnd=0;
+function startTimer(sec){clearInterval(timerInterval);timerEnd=Date.now()+sec*1000;const tick=()=>{const left=Math.max(0,Math.ceil((timerEnd-Date.now())/1000));toast(left?`Recupero ${Math.floor(left/60)}:${pad(left%60)}`:'Recupero finito ✓');if(!left)clearInterval(timerInterval)};tick();timerInterval=setInterval(tick,1000)}
+
+function historyLine(h){
+  const date=(h.date||'').slice(0,10);let detail='';
+  if(h.type==='cardio'||h.minutes)detail=`${h.minutes||'–'} min${h.km?` · ${h.km} km`:''}${h.rpe?` · RPE ${h.rpe}`:''}`;
+  else if(h.exercises)detail=`${h.exercises.reduce((a,e)=>a+(e.sets?.length||0),0)} set · ${h.place||''}`;
+  else detail=h.place||'Sessione registrata';
+  return `<div class="history-item"><div class="row"><div><b>${esc(h.name||'Allenamento')}</b><div class="muted tiny">${date?fmtDate(date,{day:'numeric',month:'short'}):''} · ${esc(detail)}</div></div><button class="swap" onclick="deleteHistory('${h.id}')">×</button></div></div>`;
+}
+function deleteHistory(id){if(!confirm('Eliminare questa sessione?'))return;state.history=state.history.filter(h=>h.id!==id);save();trendView()}
+
+function trendView(){
+  setTab('trend');setHeader('Trend','Adesione, carico e progressione');
+  const last28=Array.from({length:28},(_,i)=>dateKey(addDays(TODAY(),-27+i))), hist=state.history.filter(h=>last28.includes((h.date||'').slice(0,10)));
+  const strength=hist.filter(h=>h.type==='strength').length,cardio=hist.filter(h=>h.type==='cardio'),z2min=cardio.reduce((a,h)=>a+(+h.minutes||0),0),volume=hist.reduce((a,h)=>a+sessionVolume(h),0);
+  const weekly=Array.from({length:4},(_,w)=>{const ds=last28.slice(w*7,w*7+7);return hist.filter(h=>ds.includes((h.date||'').slice(0,10))).length});
+  const weights=(state.bodyLogs||[]).filter(x=>x.weight).slice(-12).map(x=>+x.weight);
+  app.innerHTML=`<div class="stack"><section class="grid2"><div class="metric"><small>Forza · 28g</small><b>${strength}</b></div><div class="metric"><small>Cardio · 28g</small><b>${z2min} min</b></div><div class="metric"><small>Volume est.</small><b>${Math.round(volume).toLocaleString('it-IT')}</b></div><div class="metric"><small>Sessioni totali</small><b>${hist.length}</b></div></section>
+  <section class="card"><h3>Costanza · 4 settimane</h3>${sparkline(weekly)}<div class="row tiny muted"><span>4 sett fa</span><span>questa settimana</span></div></section>
+  ${weights.length>1?`<section class="card"><h3>Peso</h3>${sparkline(weights)}<div class="muted tiny">${weights[0]} → ${weights.at(-1)} kg</div></section>`:''}
+  <section class="card"><h3>Baseline performance</h3><div class="grid2"><div class="metric"><small>Pull-up</small><b>${state.profile.baseline.pullups}</b></div><div class="metric"><small>Dips</small><b>${state.profile.baseline.dips}</b></div><div class="metric"><small>Push-up</small><b>${state.profile.baseline.pushups}</b></div><div class="metric"><small>DB shoulder</small><b>${state.profile.baseline.shoulderDbKg} kg/lato</b></div></div></section>
+  <section class="card"><div class="row"><h3>Storico</h3><span class="pill">${state.history.length}</span></div>${state.history.length?state.history.slice(0,20).map(historyLine).join(''):'<p class="muted">Nessuna sessione registrata.</p>'}</section></div>`;
+}
+function sessionVolume(h){if(!h.exercises)return 0;return h.exercises.reduce((a,e)=>a+(e.sets||[]).reduce((s,x)=>s+(+x.kg||0)*(+x.reps||0),0),0)}
+function sparkline(vals){if(!vals.length)return '<p class="muted small">Dati insufficienti</p>';const w=300,h=80,min=Math.min(...vals),max=Math.max(...vals),span=max-min||1;const pts=vals.map((v,i)=>`${(i/(Math.max(1,vals.length-1))*w).toFixed(1)},${(h-8-((v-min)/span)*(h-16)).toFixed(1)}`).join(' ');return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><line x1="0" y1="${h-8}" x2="${w}" y2="${h-8}"></line><polyline points="${pts}"></polyline></svg>`}
+
+function moreHome(){
+  setTab('more');state.moreView=null;save();setHeader('Altro','Recovery, corpo, nutrizione, sonno e connessioni');
+  app.innerHTML=`<div class="menu-grid"><button class="menu" onclick="moreView('recovery')"><b>Recovery</b><span>Readiness e turni</span></button><button class="menu" onclick="moreView('body')"><b>Corpo</b><span>Peso e baseline</span></button><button class="menu" onclick="moreView('nutrition')"><b>Nutrizione</b><span>Diario semplice</span></button><button class="menu" onclick="moreView('sleep')"><b>Sonno</b><span>Ore e qualità</span></button><button class="menu" onclick="moreView('connections')"><b>Connessioni</b><span>COROS, Health, Calendar</span></button><button class="menu" onclick="moreView('data')"><b>Dati</b><span>Backup e ripristino</span></button></div>`;
+}
+function moreView(v){state.moreView=v;save();if(v==='recovery')return recoveryPage();if(v==='body')return bodyPage();if(v==='nutrition')return nutritionPage();if(v==='sleep')return sleepPage();if(v==='connections')return connectionsPage();if(v==='data')return dataPage();moreHome()}
+function backMore(){moreHome()}
+
+function recoveryPage(){
+  setHeader('Recovery','Readiness + carico lavorativo');const d=state.selectedDate||dateKey(TODAY()),score=scoreReadiness(d),rec=recommendation(d);
+  app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="backMore()">‹ Altro</button><section class="card hero"><div class="row"><div><span class="pill ${readinessBand(score)}">${readinessLabel(score)}</span><h2 style="margin-top:10px">${score}/100</h2><p class="muted small">${esc(rec.reason)}</p></div><div class="score-ring" style="--score:${score}"><b>${score}</b><small>READY</small></div></div><button class="btn" style="margin-top:12px" onclick="openCheckin('${d}')">Aggiorna check-in</button></section>
+  <section class="card"><h3>Turni importati</h3>${state.shifts.map(s=>`<div class="history-item"><div class="row"><div><b>${fmtDate(s.date,{weekday:'short',day:'numeric',month:'short'})}</b><div class="muted tiny">${esc(s.title)}</div></div><span class="pill ${s.load>=3?'warn':''}">carico ${s.load}/4</span></div></div>`).join('')}</section></div>`;
+}
+function bodyPage(){
+  const last=state.bodyLogs.at(-1)||{};setHeader('Corpo','Peso e indicatori semplici');
+  app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="backMore()">‹ Altro</button><section class="grid2"><div class="metric"><small>Altezza</small><b>${state.profile.heightCm} cm</b></div><div class="metric"><small>Peso ultimo</small><b>${last.weight||state.profile.weightKg} kg</b></div></section><section class="card"><h3>Aggiungi misura</h3><div class="form-grid"><label>Peso kg<input id="bodyWeight" type="number" step="0.1" value="${last.weight||''}"></label><label>Vita cm<input id="bodyWaist" type="number" step="0.5" value="${last.waist||''}"></label></div><button class="btn" style="margin-top:12px" onclick="saveBody()">Salva</button></section>
+  <section class="card"><h3>Baseline forza</h3><div class="form-grid"><label>Pull-up<input id="bPull" type="number" value="${state.profile.baseline.pullups}"></label><label>Chin-up<input id="bChin" type="number" value="${state.profile.baseline.chinups}"></label><label>Dips<input id="bDip" type="number" value="${state.profile.baseline.dips}"></label><label>Push-up<input id="bPush" type="number" value="${state.profile.baseline.pushups}"></label><label>DB shoulder kg/lato<input id="bShoulder" type="number" step="0.5" value="${state.profile.baseline.shoulderDbKg}"></label><label>Chest kg<input id="bChest" type="number" step="0.5" value="${state.profile.baseline.chestKg}"></label></div><button class="btn secondary" style="margin-top:12px" onclick="saveBaseline()">Aggiorna baseline</button></section></div>`;
+}
+function saveBody(){const w=numOrNull('bodyWeight'),waist=numOrNull('bodyWaist');if(!w){toast('Inserisci il peso');return}state.bodyLogs.push({date:dateKey(TODAY()),weight:w,waist});state.profile.weightKg=w;save();toast('Misura salvata');bodyPage()}
+function saveBaseline(){state.profile.baseline={pullups:+val('bPull')||0,chinups:+val('bChin')||0,dips:+val('bDip')||0,pushups:+val('bPush')||0,shoulderDbKg:+val('bShoulder')||0,chestKg:+val('bChest')||0};save();toast('Baseline aggiornata')}
+
+function nutritionPage(){
+  setHeader('Nutrizione','Semplice, senza trasformare tutto in calorie');const d=dateKey(TODAY()),log=state.nutritionLogs[d]||{},w=state.profile.weightKg||73,lo=Math.round(w*1.6/5)*5,hi=Math.round(w*2/5)*5;
+  app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="backMore()">‹ Altro</button><section class="card hero"><h2>Target semplice</h2><p class="muted small">Per questa fase: proteine distribuite nei pasti, carboidrati attorno agli allenamenti e idratazione regolare. Nessun obbligo di contare tutte le calorie.</p><div class="grid2"><div class="metric"><small>Proteine</small><b>${lo}–${hi} g</b></div><div class="metric"><small>Peso rif.</small><b>${w} kg</b></div></div></section><section class="card"><h3>Diario di oggi</h3><div class="form-grid"><label>Proteine g<input id="nutProtein" type="number" value="${log.protein||''}"></label><label>Acqua L<input id="nutWater" type="number" step="0.25" value="${log.water||''}"></label><label>Pasti completi<input id="nutMeals" type="number" min="0" max="8" value="${log.meals||''}"></label><label>Frutta/verdura porzioni<input id="nutPlants" type="number" min="0" max="10" value="${log.plants||''}"></label></div><label style="margin-top:10px">Note<textarea id="nutNote">${esc(log.note||'')}</textarea></label><button class="btn" style="margin-top:12px" onclick="saveNutrition('${d}')">Salva diario</button></section></div>`;
+}
+function saveNutrition(d){state.nutritionLogs[d]={protein:numOrNull('nutProtein'),water:numOrNull('nutWater'),meals:numOrNull('nutMeals'),plants:numOrNull('nutPlants'),note:val('nutNote')||''};save();toast('Nutrizione salvata')}
