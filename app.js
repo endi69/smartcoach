@@ -86,7 +86,7 @@ function defaultState(){
     version:2,place:'CASA',history:[],selectedDate:dateKey(TODAY()),selectedSession:null,exerciseChoice:{},
     readiness:{},bodyLogs:[{date:'2026-09-23',weight:73,waist:null}],nutritionLogs:{},sleepLogs:{},
     coros:{...COROS_DEFAULT},shifts:SHIFT_DEFAULT.map(x=>({...x})),
-    settings:{cardioDefault:'run',reentry:true,weekStart:'monday'},
+    settings:{cardioDefault:'bike',reentry:true,weekStart:'monday'},
     profile:{...PROFILE,baseline:{...PROFILE.baseline}},moreView:null
   };
 }
@@ -134,6 +134,7 @@ function scoreReadiness(date){
   if(r.rhr!=null&&state.coros.restingHr){const d=+r.rhr-state.coros.restingHr;vals.push(d<=0?100:d<=3?85:d<=6?65:d<=10?40:20)}
   if(r.hrv!=null&&state.coros.hrvBaseline){const q=+r.hrv/state.coros.hrvBaseline;vals.push(q>=1?100:q>=.9?82:q>=.8?64:q>=.7?45:25)}
   if(r.corosRecovery!=null)vals.push(clamp(+r.corosRecovery,0,100));
+  if(r.temperatureDelta!=null){const t=Math.abs(+r.temperatureDelta);vals.push(t<.25?100:t<.5?80:t<.8?55:30)}
   let score=Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
   const sh=shiftOn(date);if(sh)score-=sh.load>=4?24:sh.load>=3?16:sh.load===2?7:3;
   return clamp(score,0,100);
@@ -148,6 +149,8 @@ function recommendation(date){
   else if(score<55){session=CARDIO.recovery;adjust='Recupero';reason='Readiness bassa: oggi conviene proteggere il recupero';setDelta=-1;cardioFactor=.6}
   else if(score<75){adjust='-20% volume';reason='Readiness intermedia: mantieni lo stimolo senza accumulare fatica';setDelta=-1;cardioFactor=.8}
   else if(shift?.load===2){adjust='Compatto';reason=`Turno ${shift.title}: seduta più breve`;setDelta=-1;cardioFactor=.8}
+  const avail=+(latestReadiness(date).availableMinutes||0);
+  if(session.type!=='recovery'&&avail&&avail<=35&&score>=55){adjust=`Compatto ${avail} min`;reason=`Tempo disponibile: ${avail} min`;setDelta=Math.min(setDelta,-1);cardioFactor=Math.min(cardioFactor,avail<=25?.65:.8)}
   if(base.type==='recovery'&&session===base){adjust='Recupero';reason='Giorno di recupero programmato'}
   return {base,session,score,shift,adjust,reason,setDelta,cardioFactor};
 }
@@ -194,9 +197,11 @@ function openCheckin(date=state.selectedDate){
       <label>Energia<select id="ciEnergy">${opts5(r.energy||3)}</select></label>
       <label>Dolori muscolari<select id="ciSore">${opts5(r.soreness||2)}</select></label>
       <label>Stress<select id="ciStress">${opts5(r.stress||3)}</select></label>
+      <label>Tempo disponibile<select id="ciTime"><option value="20" ${+r.availableMinutes===20?'selected':''}>20 min</option><option value="35" ${+r.availableMinutes===35?'selected':''}>35 min</option><option value="50" ${!r.availableMinutes||+r.availableMinutes===50?'selected':''}>50 min</option><option value="60" ${+r.availableMinutes===60?'selected':''}>60+ min</option></select></label>
       <label>COROS recovery %<input id="ciCoros" type="number" min="0" max="100" value="${r.corosRecovery??state.coros.recovery??''}"></label>
       <label>FC riposo<input id="ciRhr" type="number" min="30" max="150" value="${r.rhr??''}" placeholder="baseline ${state.coros.restingHr||'–'}"></label>
       <label>HRV ms<input id="ciHrv" type="number" min="5" max="300" value="${r.hrv??''}" placeholder="baseline ${state.coros.hrvBaseline||'–'}"></label>
+      <label>Δ temperatura °C<input id="ciTemp" type="number" step="0.1" min="-3" max="3" value="${r.temperatureDelta??''}" placeholder="opzionale"></label>
     </div>
     <div class="actions"><button class="btn" onclick="saveCheckin('${date}')">Salva e adatta</button><button class="btn secondary" onclick="todayView('${date}')">Annulla</button></div>
   </section></div>`;
@@ -205,7 +210,7 @@ function opts5(v){return [1,2,3,4,5].map(n=>`<option value="${n}" ${+v===n?'sele
 function val(id){return document.getElementById(id)?.value}
 function numOrNull(id){const v=val(id);return v===''||v==null?null:+v}
 function saveCheckin(date){
-  state.readiness[date]={sleepHours:numOrNull('ciSleep'),sleepQuality:+val('ciSQ'),energy:+val('ciEnergy'),soreness:+val('ciSore'),stress:+val('ciStress'),corosRecovery:numOrNull('ciCoros'),rhr:numOrNull('ciRhr'),hrv:numOrNull('ciHrv')};
+  state.readiness[date]={sleepHours:numOrNull('ciSleep'),sleepQuality:+val('ciSQ'),energy:+val('ciEnergy'),soreness:+val('ciSore'),stress:+val('ciStress'),availableMinutes:+val('ciTime')||50,corosRecovery:numOrNull('ciCoros'),rhr:numOrNull('ciRhr'),hrv:numOrNull('ciHrv'),temperatureDelta:numOrNull('ciTemp')};
   if(state.readiness[date].corosRecovery!=null)state.coros.recovery=state.readiness[date].corosRecovery;
   if(state.readiness[date].sleepHours!=null)state.sleepLogs[date]={hours:state.readiness[date].sleepHours,quality:state.readiness[date].sleepQuality};
   save();toast('Readiness aggiornata');todayView(date);
@@ -248,11 +253,11 @@ function previousExercise(exId){
 function progression(exercise){
   const prev=previousExercise(exercise.id);if(!prev)return {text:'Prima registrazione: parti conservativo, RPE 6–7.',load:null};
   const sets=(prev.exercise.sets||[]).filter(s=>+s.reps>0);if(!sets.length)return {text:'Nessun set valido precedente.',load:null};
-  const top=exercise.max,min=exercise.min,maxRpe=Math.max(...sets.map(s=>+s.rpe||0));
+  const top=exercise.max,min=exercise.min,rirVals=sets.map(s=>s.rir!=null&&s.rir!==''?+s.rir:(s.rpe?10-(+s.rpe):null)).filter(x=>x!=null&&Number.isFinite(x)),minRir=rirVals.length?Math.min(...rirVals):null;
   const allTop=sets.every(s=>+s.reps>=top),miss=sets.some(s=>+s.reps<min),weights=sets.map(s=>+s.kg).filter(n=>Number.isFinite(n)&&n>0),last=weights.length?Math.max(...weights):0;
-  if(allTop&&maxRpe<=8){const next=last?round(last+(exercise.increment||1),1):null;return {text:`Range alto completato a RPE ≤8: ${next?`prova ~${next} kg`:'aumenta leggermente difficoltà/reps'}.`,load:next}}
-  if(maxRpe>=9.5||miss){const next=last?round(last*.95,1):null;return {text:`Fatica alta o reps sotto range: ${next?`valuta ~${next} kg`:'riduci difficoltà'} e lascia 2–3 RIR.`,load:next}}
-  return {text:`Ripeti il carico e prova ad aggiungere 1 rep totale mantenendo RPE ≤8.`,load:last||null};
+  if(allTop&&(minRir==null||minRir>=2)){const next=last?round(last+(exercise.increment||1),1):null;return {text:`Range alto completato con ≥2 RIR: ${next?`prova ~${next} kg`:'aumenta leggermente difficoltà/reps'}.`,load:next}}
+  if((minRir!=null&&minRir<=.5)||miss){const next=last?round(last*.95,1):null;return {text:`Fatica alta o reps sotto range: ${next?`valuta ~${next} kg`:'riduci difficoltà'} e lascia 2–3 RIR.`,load:next}}
+  return {text:`Ripeti il carico e prova ad aggiungere 1 rep totale mantenendo almeno 2 RIR.`,load:last||null};
 }
 function lastSummary(exId){
   const p=previousExercise(exId);if(!p)return 'nessun dato precedente';const sets=(p.exercise.sets||[]).filter(s=>s.reps);if(!sets.length)return 'nessun dato precedente';
@@ -265,7 +270,7 @@ function openSession(id,date=state.selectedDate,rec=null){
   if(s.type==='cardio')return renderCardio(s,date,rec||recommendation(date));
   if(s.type==='recovery')return renderRecovery(date);
   const adaptive=rec||recommendation(date),reduced=adaptive.setDelta<0;
-  app.innerHTML=`<div class="stack"><section class="card"><div class="row"><div><h2>${esc(s.title)}</h2><p class="muted small" style="margin:0">${esc(s.focus)} · RPE target ${state.settings.reentry?'6–8':'7–8'}</p></div><span class="pill ${reduced?'warn':''}">${reduced?'volume ridotto':'volume normale'}</span></div>
+  app.innerHTML=`<div class="stack"><section class="card"><div class="row"><div><h2>${esc(s.title)}</h2><p class="muted small" style="margin:0">${esc(s.focus)} · RIR target ${state.settings.reentry?'2–4':'1–3'}</p></div><span class="pill ${reduced?'warn':''}">${reduced?'volume ridotto':'volume normale'}</span></div>
     <div class="segment" style="margin-top:14px"><button class="${state.place==='CASA'?'active':''}" onclick="changeWorkoutPlace('CASA','${id}','${date}')">Casa</button><button class="${state.place==='PALESTRA'?'active':''}" onclick="changeWorkoutPlace('PALESTRA','${id}','${date}')">Palestra</button></div></section>
     <section class="card" id="exerciseList">${s.exercises.map((e,i)=>renderExercise(e,i,s,date,reduced)).join('')}</section>
     <section class="card"><label>Note sessione<textarea id="sessionNote" placeholder="Dolori, sensazioni, tecnica, modifiche…"></textarea></label><div class="actions"><button class="btn secondary" onclick="startTimer(120)">Timer 2:00</button><button class="btn" onclick="saveStrength('${id}','${date}')">Salva sessione</button></div></section></div>`;
@@ -275,12 +280,12 @@ function renderExercise(e,i,s,date,reduced){
   const c=choiceFor(e,state.place),p=progression(e),nsets=Math.max(1,e.sets+(reduced?-1:0));
   return `<div class="exercise" data-ex="${e.id}"><div class="exercise-head"><div><div class="exercise-name">${i+1}. ${esc(c.name)}</div><div class="target">${nsets} × ${e.min}–${e.max}${e.side?' / lato':''} · recupero ${e.rest}s</div><div class="last">Ultima: ${esc(lastSummary(e.id))}</div></div><button class="swap" onclick="swapExercise('${e.id}','${s.id}','${state.place}','${date}')">↔ variante</button></div>
   <div class="progress-note"><strong>Coach:</strong> ${esc(p.text)}</div>
-  <div class="set-head"><span>Set</span><span>kg</span><span>reps</span><span>RPE</span><span>✓</span></div>
-  ${Array.from({length:nsets},(_,j)=>`<div class="set-row"><span class="set-no">${j+1}</span><input inputmode="decimal" type="number" step="0.5" class="kg" placeholder="${p.load??'–'}"><input inputmode="numeric" type="number" class="reps" placeholder="${e.min}-${e.max}"><input inputmode="decimal" type="number" step="0.5" min="1" max="10" class="rpe" placeholder="7"><button class="set-done" onclick="this.classList.toggle('on');this.textContent=this.classList.contains('on')?'✓':''"></button></div>`).join('')}</div>`;
+  <div class="set-head"><span>Set</span><span>kg</span><span>reps</span><span>RIR</span><span>✓</span></div>
+  ${Array.from({length:nsets},(_,j)=>`<div class="set-row"><span class="set-no">${j+1}</span><input inputmode="decimal" type="number" step="0.5" class="kg" placeholder="${p.load??'–'}"><input inputmode="numeric" type="number" class="reps" placeholder="${e.min}-${e.max}"><input inputmode="decimal" type="number" step="0.5" min="0" max="6" class="rir" placeholder="3"><button class="set-done" onclick="this.classList.toggle('on');this.textContent=this.classList.contains('on')?'✓':''"></button></div>`).join('')}</div>`;
 }
 function saveStrength(id,date){
   const s=STRENGTH[id],cards=[...document.querySelectorAll('.exercise')];
-  const exercises=cards.map((card,i)=>{const e=s.exercises[i],c=choiceFor(e,state.place);return {id:e.id,name:c.name,sets:[...card.querySelectorAll('.set-row')].map(r=>({kg:num(r.querySelector('.kg').value),reps:num(r.querySelector('.reps').value),rpe:num(r.querySelector('.rpe').value)})).filter(x=>x.reps||x.kg||x.rpe)}});
+  const exercises=cards.map((card,i)=>{const e=s.exercises[i],c=choiceFor(e,state.place);return {id:e.id,name:c.name,sets:[...card.querySelectorAll('.set-row')].map(r=>({kg:num(r.querySelector('.kg').value),reps:num(r.querySelector('.reps').value),rir:num(r.querySelector('.rir').value)})).filter(x=>x.reps||x.kg||x.rpe)}});
   if(!exercises.some(e=>e.sets.length)){toast('Inserisci almeno un set');return}
   const entry={id:uid(),date:new Date(`${date}T12:00:00`).toISOString(),sessionId:id,name:s.title,type:'strength',place:state.place,readiness:scoreReadiness(date),exercises,note:val('sessionNote')||''};
   state.history.unshift(entry);save();toast('Allenamento salvato ✓');trendView();
