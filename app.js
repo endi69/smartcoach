@@ -16,7 +16,7 @@ const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const PROFILE={
   name:'Endi',heightCm:180,weightKg:73,
   baseline:{pullups:10,chinups:10,dips:18,pushups:25,shoulderDbKg:6.5,chestKg:30},
-  goals:['Ricostruire base aerobica Z2','Ipertrofia generale','Priorità gambe e lower back','Rinforzo gluteo medio destro'],
+  goals:['Ricostruire base aerobica Z2','Ipertrofia generale','Priorità gambe e lower back','Stabilità di anca e core'],
   detraining:'~2 mesi'
 };
 
@@ -358,3 +358,89 @@ function nutritionPage(){
   app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="backMore()">‹ Altro</button><section class="card hero"><h2>Target semplice</h2><p class="muted small">Per questa fase: proteine distribuite nei pasti, carboidrati attorno agli allenamenti e idratazione regolare. Nessun obbligo di contare tutte le calorie.</p><div class="grid2"><div class="metric"><small>Proteine</small><b>${lo}–${hi} g</b></div><div class="metric"><small>Peso rif.</small><b>${w} kg</b></div></div></section><section class="card"><h3>Diario di oggi</h3><div class="form-grid"><label>Proteine g<input id="nutProtein" type="number" value="${log.protein||''}"></label><label>Acqua L<input id="nutWater" type="number" step="0.25" value="${log.water||''}"></label><label>Pasti completi<input id="nutMeals" type="number" min="0" max="8" value="${log.meals||''}"></label><label>Frutta/verdura porzioni<input id="nutPlants" type="number" min="0" max="10" value="${log.plants||''}"></label></div><label style="margin-top:10px">Note<textarea id="nutNote">${esc(log.note||'')}</textarea></label><button class="btn" style="margin-top:12px" onclick="saveNutrition('${d}')">Salva diario</button></section></div>`;
 }
 function saveNutrition(d){state.nutritionLogs[d]={protein:numOrNull('nutProtein'),water:numOrNull('nutWater'),meals:numOrNull('nutMeals'),plants:numOrNull('nutPlants'),note:val('nutNote')||''};save();toast('Nutrizione salvata')}
+
+function sleepPage(){
+  const d=dateKey(TODAY()),log=state.sleepLogs[d]||state.readiness[d]||{};
+  setHeader('Sonno','Ore, qualità e impatto sul training');
+  const recent=Object.entries(state.sleepLogs).sort((a,b)=>a[0].localeCompare(b[0])).slice(-7);
+  const avg=recent.length?round(recent.reduce((a,[,x])=>a+(+x.hours||0),0)/recent.length,1):null;
+  app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="backMore()">‹ Altro</button>
+  <section class="grid2"><div class="metric"><small>Media 7 log</small><b>${avg??'–'} h</b></div><div class="metric"><small>HRV baseline COROS</small><b>${state.coros.hrvBaseline??'–'} ms</b></div></section>
+  <section class="card"><h3>Oggi</h3><div class="form-grid"><label>Ore di sonno<input id="sleepHours" type="number" step="0.25" min="0" max="14" value="${log.hours??log.sleepHours??''}"></label><label>Qualità 1–5<select id="sleepQuality">${opts5(log.quality??log.sleepQuality??3)}</select></label></div><button class="btn" style="margin-top:12px" onclick="saveSleep('${d}')">Salva sonno</button></section>
+  <section class="card"><h3>Ultimi dati</h3>${recent.length?recent.slice().reverse().map(([day,x])=>`<div class="history-item"><div class="row"><b>${fmtDate(day,{weekday:'short',day:'numeric',month:'short'})}</b><span>${x.hours??'–'} h · qualità ${x.quality??'–'}/5</span></div></div>`).join(''):'<p class="muted small">Nessun dato locale ancora.</p>'}</section></div>`;
+}
+function saveSleep(d){
+  const hours=numOrNull('sleepHours'),quality=+val('sleepQuality');
+  state.sleepLogs[d]={hours,quality};
+  const old=latestReadiness(d);
+  state.readiness[d]={...old,sleepHours:hours,sleepQuality:quality};
+  save();toast('Sonno salvato');sleepPage();
+}
+
+function connectionsPage(){
+  setHeader('Connessioni','Stato dati e fonti');
+  app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="backMore()">‹ Altro</button>
+  <section class="card hero"><div class="row"><div><h2>COROS</h2><p class="muted small" style="margin:0">Snapshot importato ${esc(state.coros.synced||'–')}</p></div><span class="pill good">connesso in ChatGPT</span></div>
+    <div class="grid2" style="margin-top:14px"><div class="metric"><small>VO₂max</small><b>${state.coros.vo2max??'–'}</b></div><div class="metric"><small>Soglia</small><b>${state.coros.thresholdPace??'–'}</b></div><div class="metric"><small>Recovery</small><b>${state.coros.recovery??'–'}%</b></div><div class="metric"><small>Load ratio</small><b>${state.coros.loadRatio??'–'}</b></div></div>
+    <div class="notice" style="margin-top:12px">La PWA statica non contiene le credenziali COROS: i dati vengono letti in modo sicuro tramite la connessione COROS di ChatGPT e poi riportati nell'app come snapshot. Non inserire token o password nell'app.</div>
+  </section>
+  <section class="card"><h3>Google Calendar</h3><p class="muted small">Sono stati importati i turni attualmente visibili dal 25 al 30 settembre e usati come carico extra per adattare il training. Puoi aggiungerli o correggerli qui sotto.</p><button class="btn secondary" onclick="recoveryPage()">Gestisci turni</button></section>
+  <section class="card"><h3>Apple Health</h3><p class="muted small">Non collegato direttamente. La web app non legge Apple Health dal browser; eventuali dati possono essere inseriti nel check-in o sincronizzati tramite una fonte autorizzata esterna.</p></section></div>`;
+}
+
+function addShift(){
+  const d=val('shiftDate'),title=(val('shiftTitle')||'Turno').trim(),load=clamp(+val('shiftLoad')||1,1,4);
+  if(!d){toast('Scegli una data');return}
+  state.shifts=state.shifts.filter(s=>s.date!==d);
+  state.shifts.push({date:d,title,load});state.shifts.sort((a,b)=>a.date.localeCompare(b.date));save();toast('Turno salvato');recoveryPage();
+}
+function removeShift(date){state.shifts=state.shifts.filter(s=>s.date!==date);save();toast('Turno rimosso');recoveryPage()}
+
+function dataPage(){
+  setHeader('Dati','Backup locale e ripristino');
+  const size=Math.round(new Blob([JSON.stringify(state)]).size/1024);
+  app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="backMore()">‹ Altro</button>
+  <section class="card hero"><h2>I dati restano sul dispositivo</h2><p class="muted small">Le sessioni, i check-in e i diari sono salvati nel browser tramite localStorage. Un backup JSON evita di perderli se cancelli i dati del sito o cambi telefono.</p><span class="pill">~${size} KB</span></section>
+  <section class="card"><div class="actions"><button class="btn" onclick="exportData()">Esporta backup</button><button class="btn secondary" onclick="document.getElementById('importFile').click()">Importa backup</button></div><input id="importFile" class="hidden" type="file" accept="application/json,.json" onchange="importData(this.files[0])"></section>
+  <section class="card"><h3>Ripristino</h3><p class="muted small">Il ripristino sostituisce i dati locali correnti. Il programma base resta incluso nell'app.</p><button class="btn danger" onclick="resetData()">Azzera dati locali</button></section></div>`;
+}
+function exportData(){
+  const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download=`smartcoach-backup-${dateKey(TODAY())}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast('Backup esportato');
+}
+function importData(file){
+  if(!file)return;const r=new FileReader();r.onload=()=>{try{state=migrate(JSON.parse(r.result));save();toast('Backup importato');dataPage()}catch{toast('Backup non valido')}};r.readAsText(file);
+}
+function resetData(){if(!confirm('Azzero storico, check-in e diari locali?'))return;state=defaultState();save();toast('Dati locali azzerati');todayView(dateKey(TODAY()))}
+
+function enhanceRecoveryPage(){
+  const root=app.querySelector('.stack');if(!root)return;
+  const card=document.createElement('section');card.className='card';
+  card.innerHTML=`<h3>Aggiungi / modifica turno</h3><div class="form-grid"><label>Data<input id="shiftDate" type="date" value="${dateKey(TODAY())}"></label><label>Carico 1–4<select id="shiftLoad"><option value="1">1 · lieve</option><option value="2">2 · medio</option><option value="3">3 · notte/reperibilità</option><option value="4">4 · 24h o combinato</option></select></label></div><label style="margin-top:10px">Descrizione<input id="shiftTitle" value="" placeholder="es. notte reparto"></label><button class="btn secondary" style="margin-top:12px" onclick="addShift()">Salva turno</button>`;
+  root.appendChild(card);
+  const list=app.querySelectorAll('.history-item');
+  list.forEach((el,i)=>{const s=state.shifts[i];if(!s)return;const b=document.createElement('button');b.className='swap';b.textContent='rimuovi';b.onclick=()=>removeShift(s.date);el.querySelector('.row')?.appendChild(b)});
+}
+
+const _recoveryPage=recoveryPage;
+recoveryPage=function(){_recoveryPage();enhanceRecoveryPage()};
+
+function currentReentry(date=dateKey(TODAY())){
+  const start=parseDate('2026-09-23'),d=parseDate(date);return (d-start)/(86400000)<14;
+}
+state.settings.reentry=currentReentry(state.selectedDate||dateKey(TODAY()));save();
+
+document.querySelectorAll('.bottom-nav button').forEach(b=>b.addEventListener('click',()=>{
+  const t=b.dataset.tab;
+  if(t==='today')todayView(state.selectedDate||dateKey(TODAY()));
+  else if(t==='week')weekView();
+  else if(t==='train')trainingHub();
+  else if(t==='trend')trendView();
+  else moreHome();
+}));
+document.querySelector('#quickCheck').addEventListener('click',()=>openCheckin(state.selectedDate||dateKey(TODAY())));
+
+if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}))}
+window.addEventListener('storage',e=>{if(e.key===STORE_KEY){try{state=migrate(JSON.parse(e.newValue));todayView(state.selectedDate||dateKey(TODAY()))}catch{}}});
+
+todayView(dateKey(TODAY()));
