@@ -96,7 +96,9 @@ function migrate(raw){
   const d=defaultState();
   if(!raw||typeof raw!=='object')return d;
   if(raw.version===2){
-    return {...d,...raw,settings:{...d.settings,...raw.settings},profile:{...d.profile,...raw.profile,baseline:{...d.profile.baseline,...(raw.profile?.baseline||{})}},coros:{...d.coros,...raw.coros},shifts:Array.isArray(raw.shifts)?raw.shifts:d.shifts};
+    const rawCoros=raw.coros||{}, useBundled=!rawCoros.synced||String(d.coros.synced)>=String(rawCoros.synced);
+    const coros=useBundled?{...rawCoros,...d.coros}:{...d.coros,...rawCoros};
+    return {...d,...raw,settings:{...d.settings,...raw.settings},profile:{...d.profile,...raw.profile,baseline:{...d.profile.baseline,...(raw.profile?.baseline||{})}},coros,shifts:Array.isArray(raw.shifts)?raw.shifts:d.shifts};
   }
   if(Array.isArray(raw.history))d.history=raw.history.map(h=>({...h,legacy:true,id:h.id||uid()}));
   if(raw.place)d.place=raw.place;
@@ -263,7 +265,7 @@ function progression(exercise){
 }
 function lastSummary(exId){
   const p=previousExercise(exId);if(!p)return 'nessun dato precedente';const sets=(p.exercise.sets||[]).filter(s=>s.reps);if(!sets.length)return 'nessun dato precedente';
-  return sets.map(s=>`${s.kg?`${s.kg}kg×`:''}${s.reps}${s.rpe?` @${s.rpe}`:''}`).join(' · ');
+  return sets.map(s=>`${s.kg?`${s.kg}kg×`:''}${s.reps}${s.rir!=null?` · ${s.rir} RIR`:s.rpe?` · RPE ${s.rpe}`:''}`).join(' · ');
 }
 
 function openSession(id,date=state.selectedDate,rec=null){
@@ -408,9 +410,33 @@ function dataPage(){
   const size=Math.round(new Blob([JSON.stringify(state)]).size/1024);
   app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="backMore()">‹ Altro</button>
   <section class="card hero"><h2>I dati restano sul dispositivo</h2><p class="muted small">Le sessioni, i check-in e i diari sono salvati nel browser tramite localStorage. Un backup JSON evita di perderli se cancelli i dati del sito o cambi telefono.</p><span class="pill">~${size} KB</span></section>
+  <section class="card"><h3>Passaggio al coach</h3><p class="muted small">Genera un riepilogo delle ultime 2 settimane da incollare in ChatGPT quando vuoi una modifica strategica del programma.</p><button class="btn secondary" onclick="shareCoachBrief()">Copia / condividi report</button></section>
   <section class="card"><div class="actions"><button class="btn" onclick="exportData()">Esporta backup</button><button class="btn secondary" onclick="document.getElementById('importFile').click()">Importa backup</button></div><input id="importFile" class="hidden" type="file" accept="application/json,.json" onchange="importData(this.files[0])"></section>
   <section class="card"><h3>Ripristino</h3><p class="muted small">Il ripristino sostituisce i dati locali correnti. Il programma base resta incluso nell'app.</p><button class="btn danger" onclick="resetData()">Azzera dati locali</button></section></div>`;
 }
+function coachBrief(){
+  const end=dateKey(TODAY()),start=dateKey(addDays(TODAY(),-13)),hist=state.history.filter(h=>{const d=(h.date||'').slice(0,10);return d>=start&&d<=end});
+  const strength=hist.filter(h=>h.type==='strength').length,cardio=hist.filter(h=>h.type==='cardio'),z2=cardio.reduce((a,h)=>a+(+h.minutes||0),0),lastBody=state.bodyLogs.at(-1)||{};
+  const r=latestReadiness(end),rec=recommendation(end);
+  return [
+    'SMARTCOACH REPORT',`Periodo: ${start} → ${end}`,
+    `Peso: ${lastBody.weight??state.profile.weightKg} kg`,
+    `Sessioni forza: ${strength}; cardio: ${cardio.length}; minuti cardio: ${z2}`,
+    `Readiness oggi: ${scoreReadiness(end)}/100; consiglio: ${rec.session.title} (${rec.adjust})`,
+    `Check-in: sonno ${r.sleepHours??'–'} h, energia ${r.energy??'–'}/5, DOMS ${r.soreness??'–'}/5, stress ${r.stress??'–'}/5`,
+    `COROS snapshot ${state.coros.synced}: recovery ${state.coros.recovery??'–'}%, VO2max ${state.coros.vo2max??'–'}, soglia ${state.coros.thresholdPace??'–'}, load breve/lungo ${state.coros.shortLoad??'–'}/${state.coros.longLoad??'–'}`,
+    `Ultime sessioni: ${hist.slice(0,8).map(h=>`${(h.date||'').slice(0,10)} ${h.name}`).join(' | ')||'nessuna'}`,
+    'Obiettivi: '+state.profile.goals.join('; ')
+  ].join('\n');
+}
+async function shareCoachBrief(){
+  const txt=coachBrief();
+  try{
+    if(navigator.share)await navigator.share({title:'SmartCoach report',text:txt});
+    else{await navigator.clipboard.writeText(txt);toast('Report copiato')}
+  }catch(e){if(e?.name!=='AbortError'){try{await navigator.clipboard.writeText(txt);toast('Report copiato')}catch{toast('Impossibile copiare')}}}
+}
+
 function exportData(){
   const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download=`smartcoach-backup-${dateKey(TODAY())}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast('Backup esportato');
