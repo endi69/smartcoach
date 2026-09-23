@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='2.2.3';
+const APP_VERSION='2.2.4';
 const STORE_KEY='sc-state';
 const TODAY=()=>new Date();
 const pad=n=>String(n).padStart(2,'0');
@@ -163,7 +163,39 @@ function normalizeHealthPayload(raw){
   return {sleep:latest('sleep'),hrv:latest('hrv'),rhr:latest('rhr'),respiratory:latest('respiratory'),temp:latest('temp'),at:raw?.receivedAt||new Date().toISOString()};
 }
 function applyHealthSnapshot(x){if(!x||[x.sleep,x.hrv,x.rhr,x.respiratory,x.temp].every(v=>v==null))return false;const d=(String(x.at).match(/^\d{4}-\d{2}-\d{2}/)||[dateKey(TODAY())])[0];state.health={...(state.health||{}),latest:x,lastSync:new Date().toISOString(),status:'ok'};const old=state.readiness[d]||{};state.readiness[d]={...old,...(x.sleep!=null?{sleepHours:x.sleep}:{}),...(x.hrv!=null?{hrv:x.hrv}:{}),...(x.rhr!=null?{rhr:x.rhr}:{})};state.sleepLogs[d]={...(state.sleepLogs[d]||{}),...(x.sleep!=null?{hours:x.sleep}:{}),...(x.hrv!=null?{hrv:x.hrv}:{}),...(x.rhr!=null?{rhr:x.rhr}:{})};save();return true}
-async function syncHealthOnOpen({silent=false}={}){const endpoint=HEALTH_SYNC.endpoint;if(!endpoint)return false;if(!silent)toast('Sincronizzazione Apple Health…');try{const sep=endpoint.includes('?')?'&':'?';const res=await fetch(endpoint+sep+'t='+Date.now(),{method:'GET',headers:healthHeaders(),cache:'no-store'});if(!res.ok)throw new Error('HTTP '+res.status);const x=normalizeHealthPayload(await res.json());if(!applyHealthSnapshot(x))throw new Error('Dati Health non riconosciuti');if(!silent)toast('Apple Health aggiornato ✓');return true}catch(e){state.health={...(state.health||{}),status:'error',error:String(e.message||e),lastAttempt:new Date().toISOString()};save();if(!silent)toast('Health non aggiornato');return false}}
+async function fetchHealthDiagnostics(){
+  try{
+    const sep=HEALTH_SYNC.endpoint.includes('?')?'&':'?';
+    const r=await fetch(HEALTH_SYNC.endpoint+sep+'diag=1&t='+Date.now(),{headers:healthHeaders(),cache:'no-store'});
+    const d=await r.json();
+    state.health={...(state.health||{}),diag:d,diagAt:new Date().toISOString()};
+    save();
+    return d;
+  }catch{return null}
+}
+async function syncHealthOnOpen({silent=false}={}){
+  const endpoint=HEALTH_SYNC.endpoint;if(!endpoint)return false;
+  if(!silent)toast('Sincronizzazione Apple Health…');
+  try{
+    const sep=endpoint.includes('?')?'&':'?';
+    const res=await fetch(endpoint+sep+'t='+Date.now(),{method:'GET',headers:healthHeaders(),cache:'no-store'});
+    if(!res.ok){
+      let body=null;try{body=await res.json()}catch{}
+      throw new Error(body?.error?body.error+(body?.batchCount!=null?' · batch '+body.batchCount:''):'HTTP '+res.status);
+    }
+    const x=normalizeHealthPayload(await res.json());
+    if(!applyHealthSnapshot(x))throw new Error('Dati Health non riconosciuti');
+    await fetchHealthDiagnostics();
+    if(!silent)toast('Apple Health aggiornato ✓');
+    return true;
+  }catch(e){
+    state.health={...(state.health||{}),status:'error',error:String(e.message||e),lastAttempt:new Date().toISOString()};
+    save();
+    await fetchHealthDiagnostics();
+    if(!silent)toast('Health non aggiornato');
+    return false;
+  }
+}
 function healthFreshness(){const at=state.health?.lastSync;if(!at)return 'mai';const mins=Math.max(0,Math.round((Date.now()-new Date(at).getTime())/60000));return mins<1?'adesso':mins<60?`${mins} min fa`:mins<1440?`${Math.round(mins/60)} h fa`:`${Math.round(mins/1440)} g fa`}
 
 const app=document.querySelector('#app');
@@ -463,7 +495,8 @@ function connectionsPage(){
   setHeader('Connessioni','Stato dati e fonti');const hs=state.health||{},hx=hs.latest||{};
   const status=hs.status==='ok'?'attivo':'da verificare';
   const detail=hs.status==='error'&&hs.error?' · '+esc(hs.error):'';
-  app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="backMore()">‹ Altro</button><section class="card hero"><div class="row"><div><h2>Apple Watch / Health</h2><p class="muted small" style="margin:0">Endpoint SmartCoach automatico · ${hs.lastSync?'aggiornato '+healthFreshness():'nessun dato letto'}${detail}</p></div><span class="pill ${hs.status==='ok'?'good':'warn'}">${status}</span></div><div class="grid2" style="margin-top:14px"><div class="metric"><small>Sonno</small><b>${hx.sleep??'–'}${hx.sleep!=null?' h':''}</b></div><div class="metric"><small>HRV</small><b>${hx.hrv??'–'}${hx.hrv!=null?' ms':''}</b></div><div class="metric"><small>FC riposo</small><b>${hx.rhr??'–'}${hx.rhr!=null?' bpm':''}</b></div><div class="metric"><small>Respirazione</small><b>${hx.respiratory??'–'}${hx.respiratory!=null?' /min':''}</b></div></div><p class="muted small">Apple Watch → Apple Health → Health Exporter → SmartCoach. L'endpoint non è più modificabile nell'app, così un vecchio URL Vercel non può interrompere la sincronizzazione.</p><div class="actions"><button class="btn" onclick="syncHealthOnOpen().then(()=>connectionsPage())">Verifica / aggiorna</button></div></section><section class="card"><div class="row"><div><h3>COROS</h3><p class="muted small" style="margin:0">Training/recovery · snapshot ${esc(state.coros.synced||'–')}</p></div><span class="pill good">connesso</span></div><div class="grid2" style="margin-top:12px"><div class="metric"><small>VO₂max</small><b>${state.coros.vo2max??'–'}</b></div><div class="metric"><small>Recovery</small><b>${state.coros.recovery??'–'}%</b></div><div class="metric"><small>Soglia</small><b>${state.coros.thresholdPace??'–'}</b></div><div class="metric"><small>Load ratio</small><b>${state.coros.loadRatio??'–'}</b></div></div></section><section class="card"><h3>Google Calendar</h3><p class="muted small">I turni importati vengono trattati come carico extra.</p><button class="btn secondary" onclick="recoveryPage()">Gestisci turni</button></section></div>`;
+  const hd=hs.diag||{},diagText=hd.batchCount!=null?`Batch ricevuti: ${hd.batchCount} · metriche riconosciute: ${(hd.recognized||[]).join(', ')||'nessuna'}`:'Diagnostica non ancora disponibile';
+  app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="backMore()">‹ Altro</button><section class="card hero"><div class="row"><div><h2>Apple Watch / Health</h2><p class="muted small" style="margin:0">Endpoint SmartCoach automatico · ${hs.lastSync?'aggiornato '+healthFreshness():'nessun dato letto'}${detail}</p></div><span class="pill ${hs.status==='ok'?'good':'warn'}">${status}</span></div><div class="grid2" style="margin-top:14px"><div class="metric"><small>Sonno</small><b>${hx.sleep??'–'}${hx.sleep!=null?' h':''}</b></div><div class="metric"><small>HRV</small><b>${hx.hrv??'–'}${hx.hrv!=null?' ms':''}</b></div><div class="metric"><small>FC riposo</small><b>${hx.rhr??'–'}${hx.rhr!=null?' bpm':''}</b></div><div class="metric"><small>Respirazione</small><b>${hx.respiratory??'–'}${hx.respiratory!=null?' /min':''}</b></div></div><p class="muted small">Apple Watch → Apple Health → Health Exporter → SmartCoach. L'endpoint non è più modificabile nell'app, così un vecchio URL Vercel non può interrompere la sincronizzazione.</p><p class="muted small"><b>Diagnostica:</b> ${diagText}</p><div class="actions"><button class="btn" onclick="syncHealthOnOpen().then(()=>connectionsPage())">Verifica / aggiorna</button></div></section><section class="card"><div class="row"><div><h3>COROS</h3><p class="muted small" style="margin:0">Training/recovery · snapshot ${esc(state.coros.synced||'–')}</p></div><span class="pill good">connesso</span></div><div class="grid2" style="margin-top:12px"><div class="metric"><small>VO₂max</small><b>${state.coros.vo2max??'–'}</b></div><div class="metric"><small>Recovery</small><b>${state.coros.recovery??'–'}%</b></div><div class="metric"><small>Soglia</small><b>${state.coros.thresholdPace??'–'}</b></div><div class="metric"><small>Load ratio</small><b>${state.coros.loadRatio??'–'}</b></div></div></section><section class="card"><h3>Google Calendar</h3><p class="muted small">I turni importati vengono trattati come carico extra.</p><button class="btn secondary" onclick="recoveryPage()">Gestisci turni</button></section></div>`;
 }
 async function saveHealthBridge(){await syncHealthOnOpen();connectionsPage()}
 
