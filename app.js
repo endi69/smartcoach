@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='2.4.2';
+const APP_VERSION='2.4.3';
 const STORE_KEY='sc-state';
 const TODAY=()=>new Date();
 const pad=n=>String(n).padStart(2,'0');
@@ -283,7 +283,7 @@ function healthTrendPage(kind){
   const local=Object.entries(state.sleepLogs||{}).map(([d,x])=>({d,v:kind==='sleep'?(x.hours??x.sleepHours):x[kind]})).filter(x=>x.v!=null);
   const map=new Map(local.map(x=>[x.d,x]));remote.forEach(x=>map.set(x.d,x));const rows=[...map.values()].sort((a,b)=>a.d.localeCompare(b.d)).slice(-90),vals=rows.map(x=>+x.v);
   setHeader(m[0],'trend');
-  app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="todayView()">‹ Oggi</button><section class="card"><div class="row"><h2>${m[0]}</h2><span class="pill">${rows.length} gg</span></div>${vals.length>1?sparkline(vals):'<p class="muted small">Servono più dati per il grafico.</p>'}<div class="history-item">${rows.slice(-14).reverse().map(x=>`<div class="row"><span>${fmtDate(x.d,{day:'numeric',month:'short'})}</span><b>${x.v} ${m[1]}</b></div>`).join('')}</div></section>${kind==='hrv'?'<section class="card"><p class="muted small">HRV giornaliera = valore rappresentativo dei campioni disponibili, non l’ultima lettura isolata. Il coach usa il trend rispetto alla tua baseline.</p></section>':''}${kind==='rhr'?'<section class="card"><p class="muted small">FC a riposo = Resting Heart Rate di Apple Health, utile come trend rispetto alla baseline; non è l’ultima frequenza cardiaca istantanea.</p></section>':''}</div>`;
+  app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="todayView()">‹ Oggi</button><section class="card"><div class="row"><h2>${m[0]}</h2><span class="pill">${rows.length} gg</span></div>${vals.length>1?sparkline(vals):'<p class="muted small">Servono più dati per il grafico.</p>'}<div class="history-item">${rows.slice(-14).reverse().map(x=>`<div class="row"><span>${fmtDate(x.d,{day:'numeric',month:'short'})}</span><b>${x.v} ${m[1]}</b></div>`).join('')}</div></section>${kind==='hrv'?'<section class="card"><p class="muted small">HRV sonno = valore rappresentativo dei campioni registrati durante il sonno. Il coach usa questo trend rispetto alla tua baseline.</p></section>':''}${kind==='rhr'?'<section class="card"><p class="muted small">FC a riposo = Resting Heart Rate di Apple Health, utile come trend rispetto alla baseline; non è l’ultima frequenza cardiaca istantanea.</p></section>':''}</div>`;
 }
 function openCheckin(date=state.selectedDate){
   const r=latestReadiness(date);
