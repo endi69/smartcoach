@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='2.4.3';
+const APP_VERSION='2.5.0';
 const STORE_KEY='sc-state';
 const TODAY=()=>new Date();
 const pad=n=>String(n).padStart(2,'0');
@@ -90,7 +90,7 @@ function defaultState(){
     version:2,place:'CASA',history:[],selectedDate:dateKey(TODAY()),selectedSession:null,exerciseChoice:{},
     readiness:{},bodyLogs:[{date:'2026-09-23',weight:73,waist:null}],nutritionLogs:{},sleepLogs:{},
     coros:{...COROS_DEFAULT},shifts:SHIFT_DEFAULT.map(x=>({...x})),
-    settings:{cardioDefault:'bike',reentry:true,weekStart:'monday',goal:'recomp',nutrition:{calories:2400,protein:150,carbs:300,fat:67},baselineOpen:false},
+    settings:{cardioDefault:'bike',reentry:true,weekStart:'monday',goal:'recomp',nutrition:{calories:2400,protein:150,carbs:300,fat:67},baselineOpen:false,goals:{weightKg:75,run5kMin:25,muscle:'hypertrophy',priority:'legs-posterior-chain',aerobic:'rebuild-z2'}},
     profile:{...PROFILE,baseline:{...PROFILE.baseline}},moreView:null
   };
 }
@@ -250,8 +250,9 @@ function recommendation(date){
   return {base,session,score,shift,adjust,reason,setDelta,cardioFactor,availableMinutes:avail};
 }
 function nutritionTargets(){
-  const n=state.settings?.nutrition||{},w=state.profile.weightKg||73;
-  return {calories:+n.calories||Math.round(w*33),protein:+n.protein||Math.round(w*2),carbs:+n.carbs||Math.round(w*4),fat:+n.fat||Math.round(w*.9)};
+  const n=state.settings?.nutrition||{},w=state.profile.weightKg||73,g=state.settings?.goals||{},target=+g.weightKg||w,d=target-w;
+  const calories=+n.calories||Math.round(w*(d>1?34:d<-1?28:32)),protein=+n.protein||Math.round(w*2),fat=+n.fat||Math.round(w*.9),carbs=+n.carbs||Math.max(100,Math.round((calories-protein*4-fat*9)/4));
+  return {calories,protein,carbs,fat};
 }
 function todayView(date=state.selectedDate||dateKey(TODAY())){
   state.selectedDate=date;save();setTab('today');
@@ -438,10 +439,20 @@ function sparkline(vals){if(!vals.length)return '<p class="muted small">Dati ins
 
 function moreHome(){
   setTab('more');state.moreView=null;save();setHeader('Altro','');
-  app.innerHTML=`<div class="menu-grid"><button class="menu" onclick="moreView('recovery')"><b>Recovery</b><span>Readiness e turni</span></button><button class="menu" onclick="moreView('body')"><b>Corpo</b><span>Peso e baseline</span></button><button class="menu" onclick="moreView('nutrition')"><b>Nutrizione</b><span>Calorie e macro</span></button><button class="menu" onclick="moreView('sleep')"><b>Sonno</b><span>Ore e qualità</span></button><button class="menu" onclick="moreView('connections')"><b>Connessioni</b><span>COROS, Health, Calendar</span></button><button class="menu" onclick="moreView('data')"><b>Dati</b><span>Backup e ripristino</span></button></div>`;
+  app.innerHTML=`<div class="menu-grid"><button class="menu" onclick="moreView('goals')"><b>Obiettivi</b><span>Un solo piano</span></button><button class="menu" onclick="moreView('recovery')"><b>Recovery</b><span>Readiness e turni</span></button><button class="menu" onclick="moreView('body')"><b>Corpo</b><span>Peso e baseline</span></button><button class="menu" onclick="moreView('nutrition')"><b>Nutrizione</b><span>Calorie e macro</span></button><button class="menu" onclick="moreView('sleep')"><b>Sonno</b><span>Ore e qualità</span></button><button class="menu" onclick="moreView('connections')"><b>Connessioni</b><span>COROS, Health, Calendar</span></button><button class="menu" onclick="moreView('data')"><b>Dati</b><span>Backup e ripristino</span></button></div>`;
 }
-function moreView(v){state.moreView=v;save();if(v==='recovery')return recoveryPage();if(v==='body')return bodyPage();if(v==='nutrition')return nutritionPage();if(v==='sleep')return sleepPage();if(v==='connections')return connectionsPage();if(v==='data')return dataPage();moreHome()}
+function moreView(v){state.moreView=v;save();if(v==='goals')return goalsPage();if(v==='recovery')return recoveryPage();if(v==='body')return bodyPage();if(v==='nutrition')return nutritionPage();if(v==='sleep')return sleepPage();if(v==='connections')return connectionsPage();if(v==='data')return dataPage();moreHome()}
 function backMore(){moreHome()}
+
+function goalsPage(){
+ const g=state.settings.goals||{},w=state.profile.weightKg||73;
+ setHeader('Obiettivi','');
+ app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="backMore()">‹ Altro</button>
+ <section class="card hero"><h2>Un piano, più obiettivi</h2><div class="grid2" style="margin-top:12px"><div class="metric"><small>Peso</small><b>${w} → ${g.weightKg||75} kg</b></div><div class="metric"><small>5 km</small><b>${g.run5kMin||25} min</b></div><div class="metric"><small>Forza</small><b>Ipertrofia</b></div><div class="metric"><small>Priorità</small><b>Gambe + catena post.</b></div></div></section>
+ <section class="card"><h3>Modifica</h3><div class="form-grid"><label>Peso target kg<input id="goalWeight" type="number" step=".1" value="${g.weightKg||75}"></label><label>5 km target (min)<input id="goal5k" type="number" step=".5" value="${g.run5kMin||25}"></label><label>Obiettivo muscolare<select id="goalMuscle"><option value="hypertrophy" selected>Ipertrofia</option><option value="strength">Forza</option><option value="maintenance">Mantenimento</option></select></label><label>Priorità<select id="goalPriority"><option value="legs-posterior-chain" selected>Gambe + lower back</option><option value="balanced">Bilanciato</option><option value="upper">Upper</option></select></label></div><button class="btn" style="margin-top:12px" onclick="saveGoals()">Aggiorna piano</button></section>
+ <section class="card"><h3>Corsa · COROS</h3><div class="grid2"><div class="metric"><small>VO₂max</small><b>${state.coros.vo2max??'–'}</b></div><div class="metric"><small>Soglia</small><b>${state.coros.thresholdPace||'–'}</b></div><div class="metric"><small>Running level</small><b>${state.coros.runningLevel??'–'}</b></div><div class="metric"><small>Carico 7g</small><b>${state.coros.shortLoad??'–'}</b></div></div></section></div>`;
+}
+function saveGoals(){state.settings.goals={...(state.settings.goals||{}),weightKg:+val('goalWeight')||75,run5kMin:+val('goal5k')||25,muscle:val('goalMuscle'),priority:val('goalPriority'),aerobic:'rebuild-z2'};const w=state.profile.weightKg||73,d=state.settings.goals.weightKg-w;state.settings.nutrition={...(state.settings.nutrition||{}),calories:Math.round(w*(d>1?34:d<-1?28:32)),protein:Math.round(w*2),fat:Math.round(w*.9)};const kcal=state.settings.nutrition.calories,p=state.settings.nutrition.protein,f=state.settings.nutrition.fat;state.settings.nutrition.carbs=Math.max(100,Math.round((kcal-p*4-f*9)/4));save();toast('Piano aggiornato');goalsPage()}
 
 function recoveryPage(){
   setHeader('Recovery','Readiness + carico lavorativo');const d=state.selectedDate||dateKey(TODAY()),score=scoreReadiness(d),rec=recommendation(d);
