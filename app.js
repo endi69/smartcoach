@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='2.2.4';
+const APP_VERSION='2.3.0';
 const STORE_KEY='sc-state';
 const TODAY=()=>new Date();
 const pad=n=>String(n).padStart(2,'0');
@@ -90,7 +90,7 @@ function defaultState(){
     version:2,place:'CASA',history:[],selectedDate:dateKey(TODAY()),selectedSession:null,exerciseChoice:{},
     readiness:{},bodyLogs:[{date:'2026-09-23',weight:73,waist:null}],nutritionLogs:{},sleepLogs:{},
     coros:{...COROS_DEFAULT},shifts:SHIFT_DEFAULT.map(x=>({...x})),
-    settings:{cardioDefault:'bike',reentry:true,weekStart:'monday'},
+    settings:{cardioDefault:'bike',reentry:true,weekStart:'monday',goal:'recomp',nutrition:{calories:2400,protein:150,carbs:300,fat:67}},
     profile:{...PROFILE,baseline:{...PROFILE.baseline}},moreView:null
   };
 }
@@ -247,38 +247,31 @@ function recommendation(date){
   return {base,session,score,shift,adjust,reason,setDelta,cardioFactor};
 }
 
+function nutritionTargets(){
+  const n=state.settings?.nutrition||{},w=state.profile.weightKg||73;
+  return {calories:+n.calories||Math.round(w*33),protein:+n.protein||Math.round(w*2),carbs:+n.carbs||Math.round(w*4),fat:+n.fat||Math.round(w*.9)};
+}
 function todayView(date=state.selectedDate||dateKey(TODAY())){
   state.selectedDate=date;save();setTab('today');
-  const rec=recommendation(date),r=latestReadiness(date),band=readinessBand(rec.score),done=historyOn(date);
-  setHeader(date===dateKey(TODAY())?'Oggi':fmtDate(date,{weekday:'long',day:'numeric',month:'long'}),'Ipertrofia + base aerobica, adattate al recupero');
-  const shiftHtml=rec.shift?`<span class="pill warn">Turno: ${esc(rec.shift.title)}</span>`:'<span class="pill">Nessun turno pesante</span>';
+  const rec=recommendation(date),r=latestReadiness(date),band=readinessBand(rec.score),done=historyOn(date),nt=nutritionTargets(),nl=state.nutritionLogs[date]||{};
+  setHeader(date===dateKey(TODAY())?'Oggi':fmtDate(date,{weekday:'long',day:'numeric',month:'long'}),'');
+  const shiftHtml=rec.shift?`<span class="pill warn">${esc(rec.shift.title)}</span>`:'';
+  const macro=(v,target)=>v!=null?`${v}/${target}`:`–/${target}`;
   app.innerHTML=`<div class="stack">
     <section class="card hero">
-      <div class="row start">
-        <div class="grow"><div class="pills"><span class="pill ${band}">${readinessLabel(rec.score)}</span>${shiftHtml}</div><h2 style="margin-top:12px">${esc(rec.session.title)}</h2><p class="muted small" style="margin:4px 0 0">${esc(rec.session.focus)}</p></div>
-        <div class="score-ring" style="--score:${rec.score}"><b>${rec.score}</b><small>READY</small></div>
-      </div>
-      <div class="notice ${band==='good'?'goodbox':band==='warn'?'warnbox':''}" style="margin-top:14px"><strong>${esc(rec.adjust)}</strong> · ${esc(rec.reason)}</div>
-      <div class="actions"><button class="btn" onclick="startRecommended('${date}')">${rec.session.type==='recovery'?'Apri recupero':'Inizia allenamento'}</button><button class="btn secondary" onclick="openCheckin('${date}')">Check-in</button></div>
+      <div class="row start"><div class="grow"><div class="pills"><span class="pill ${band}">${readinessLabel(rec.score)}</span>${shiftHtml}</div><h2 style="margin-top:12px">${esc(rec.session.title)}</h2><p class="muted small" style="margin:4px 0 0">${esc(rec.session.focus)}</p></div><div class="score-ring" style="--score:${rec.score}"><b>${rec.score}</b><small>READY</small></div></div>
+      <div class="actions"><button class="btn" onclick="startRecommended('${date}')">${rec.session.type==='recovery'?'Recupero':'Inizia'}</button><button class="btn secondary" onclick="openCheckin('${date}')">Check-in</button></div>
     </section>
-
     <section class="grid3">
-      <div class="metric"><small>COROS recovery</small><b>${state.coros.recovery??'–'}%</b></div>
-      <div class="metric"><small>Sonno</small><b>${r.sleepHours??state.coros.sleepHoursLast??'–'}${(r.sleepHours??state.coros.sleepHoursLast)!=null?' h':''}</b></div>
-      <div class="metric"><small>HRV sonno</small><b>${r.hrv??state.coros.sleepHrvLast??'–'}${(r.hrv??state.coros.sleepHrvLast)!=null?' ms':''}</b><span class="tiny muted">baseline ${state.coros.hrvBaseline??'–'} ms</span></div>
-      <div class="metric"><small>FC riposo</small><b>${r.rhr??state.coros.rhrLatest??'–'}${(r.rhr??state.coros.rhrLatest)!=null?' bpm':''}</b><span class="tiny muted">baseline ${state.coros.restingHr??'–'}</span></div>
-      <div class="metric"><small>VO₂max</small><b>${state.coros.vo2max??'–'}</b></div>
-      <div class="metric"><small>Carico 7g</small><b>${state.coros.shortLoad??'–'}</b></div>
+      <div class="metric"><small>Sonno</small><b>${r.sleepHours??'–'}${r.sleepHours!=null?' h':''}</b></div>
+      <div class="metric"><small>HRV</small><b>${r.hrv??'–'}${r.hrv!=null?' ms':''}</b></div>
+      <div class="metric"><small>FC riposo</small><b>${r.rhr??'–'}${r.rhr!=null?' bpm':''}</b></div>
     </section>
-
-    <section class="card">
-      <div class="row"><div><h3>Check-in rapido</h3><span class="muted small">Aggiorna il consiglio di oggi</span></div><span class="pill">${r.sleepHours?`${r.sleepHours} h sonno`:'sonno –'}</span></div>
-      <div class="grid3" style="margin-top:12px"><div class="metric"><small>Energia</small><b>${r.energy??'–'}/5</b></div><div class="metric"><small>Dolori</small><b>${r.soreness??'–'}/5</b></div><div class="metric"><small>Stress</small><b>${r.stress??'–'}/5</b></div></div>
+    <section class="card"><div class="row"><h3>Oggi · nutrizione</h3><button class="btn ghost smallbtn" onclick="moreView('nutrition')">Apri</button></div>
+      <div class="grid2" style="margin-top:10px"><div class="metric"><small>kcal</small><b>${macro(nl.calories,nt.calories)}</b></div><div class="metric"><small>Proteine</small><b>${macro(nl.protein,nt.protein)} g</b></div><div class="metric"><small>Carbo</small><b>${macro(nl.carbs,nt.carbs)} g</b></div><div class="metric"><small>Grassi</small><b>${macro(nl.fat,nt.fat)} g</b></div></div>
     </section>
-
-    ${done.length?`<section class="card"><h3>Registrato oggi</h3>${done.map(historyLine).join('')}</section>`:''}
-
-    <section class="card soft"><div class="row"><div><h3>Fase iniziale</h3><p class="muted small" style="margin:0">Rientro dopo ${esc(state.profile.detraining)}: niente cedimento nelle prime 2 settimane. Priorità a tecnica, continuità e tolleranza di gambe/lower back.</p></div></div></section>
+    <section class="card"><div class="row"><h3>Stato</h3><span class="pill">${rec.adjust}</span></div><div class="grid3" style="margin-top:10px"><div class="metric"><small>Energia</small><b>${r.energy??'–'}/5</b></div><div class="metric"><small>Dolori</small><b>${r.soreness??'–'}/5</b></div><div class="metric"><small>Stress</small><b>${r.stress??'–'}/5</b></div></div></section>
+    ${done.length?`<section class="card"><h3>Completato</h3>${done.map(historyLine).join('')}</section>`:''}
   </div>`;
 }
 
@@ -434,8 +427,8 @@ function sessionVolume(h){if(!h.exercises)return 0;return h.exercises.reduce((a,
 function sparkline(vals){if(!vals.length)return '<p class="muted small">Dati insufficienti</p>';const w=300,h=80,min=Math.min(...vals),max=Math.max(...vals),span=max-min||1;const pts=vals.map((v,i)=>`${(i/(Math.max(1,vals.length-1))*w).toFixed(1)},${(h-8-((v-min)/span)*(h-16)).toFixed(1)}`).join(' ');return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><line x1="0" y1="${h-8}" x2="${w}" y2="${h-8}"></line><polyline points="${pts}"></polyline></svg>`}
 
 function moreHome(){
-  setTab('more');state.moreView=null;save();setHeader('Altro','Recovery, corpo, nutrizione, sonno e connessioni');
-  app.innerHTML=`<div class="menu-grid"><button class="menu" onclick="moreView('recovery')"><b>Recovery</b><span>Readiness e turni</span></button><button class="menu" onclick="moreView('body')"><b>Corpo</b><span>Peso e baseline</span></button><button class="menu" onclick="moreView('nutrition')"><b>Nutrizione</b><span>Diario semplice</span></button><button class="menu" onclick="moreView('sleep')"><b>Sonno</b><span>Ore e qualità</span></button><button class="menu" onclick="moreView('connections')"><b>Connessioni</b><span>COROS, Health, Calendar</span></button><button class="menu" onclick="moreView('data')"><b>Dati</b><span>Backup e ripristino</span></button></div>`;
+  setTab('more');state.moreView=null;save();setHeader('Altro','');
+  app.innerHTML=`<div class="menu-grid"><button class="menu" onclick="moreView('recovery')"><b>Recovery</b><span>Readiness e turni</span></button><button class="menu" onclick="moreView('body')"><b>Corpo</b><span>Peso e baseline</span></button><button class="menu" onclick="moreView('nutrition')"><b>Nutrizione</b><span>Calorie e macro</span></button><button class="menu" onclick="moreView('sleep')"><b>Sonno</b><span>Ore e qualità</span></button><button class="menu" onclick="moreView('connections')"><b>Connessioni</b><span>COROS, Health, Calendar</span></button><button class="menu" onclick="moreView('data')"><b>Dati</b><span>Backup e ripristino</span></button></div>`;
 }
 function moreView(v){state.moreView=v;save();if(v==='recovery')return recoveryPage();if(v==='body')return bodyPage();if(v==='nutrition')return nutritionPage();if(v==='sleep')return sleepPage();if(v==='connections')return connectionsPage();if(v==='data')return dataPage();moreHome()}
 function backMore(){moreHome()}
@@ -454,10 +447,14 @@ function saveBody(){const w=numOrNull('bodyWeight'),waist=numOrNull('bodyWaist')
 function saveBaseline(){state.profile.baseline={pullups:+val('bPull')||0,chinups:+val('bChin')||0,dips:+val('bDip')||0,pushups:+val('bPush')||0,shoulderDbKg:+val('bShoulder')||0,chestKg:+val('bChest')||0};save();toast('Baseline aggiornata')}
 
 function nutritionPage(){
-  setHeader('Nutrizione','Semplice, senza trasformare tutto in calorie');const d=dateKey(TODAY()),log=state.nutritionLogs[d]||{},w=state.profile.weightKg||73,lo=Math.round(w*1.6/5)*5,hi=Math.round(w*2/5)*5;
-  app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="backMore()">‹ Altro</button><section class="card hero"><h2>Target semplice</h2><p class="muted small">Per questa fase: proteine distribuite nei pasti, carboidrati attorno agli allenamenti e idratazione regolare. Nessun obbligo di contare tutte le calorie.</p><div class="grid2"><div class="metric"><small>Proteine</small><b>${lo}–${hi} g</b></div><div class="metric"><small>Peso rif.</small><b>${w} kg</b></div></div></section><section class="card"><h3>Diario di oggi</h3><div class="form-grid"><label>Proteine g<input id="nutProtein" type="number" value="${log.protein||''}"></label><label>Acqua L<input id="nutWater" type="number" step="0.25" value="${log.water||''}"></label><label>Pasti completi<input id="nutMeals" type="number" min="0" max="8" value="${log.meals||''}"></label><label>Frutta/verdura porzioni<input id="nutPlants" type="number" min="0" max="10" value="${log.plants||''}"></label></div><label style="margin-top:10px">Note<textarea id="nutNote">${esc(log.note||'')}</textarea></label><button class="btn" style="margin-top:12px" onclick="saveNutrition('${d}')">Salva diario</button></section></div>`;
+  setHeader('Nutrizione','');const d=dateKey(TODAY()),log=state.nutritionLogs[d]||{},t=nutritionTargets();
+  app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="backMore()">‹ Altro</button>
+  <section class="card hero"><div class="row"><h2>Macro di oggi</h2><span class="pill">${t.calories} kcal</span></div><div class="grid3" style="margin-top:12px"><div class="metric"><small>Proteine</small><b>${t.protein} g</b></div><div class="metric"><small>Carbo</small><b>${t.carbs} g</b></div><div class="metric"><small>Grassi</small><b>${t.fat} g</b></div></div></section>
+  <section class="card"><h3>Consumato</h3><div class="form-grid"><label>Calorie<input id="nutCalories" type="number" value="${log.calories??''}"></label><label>Proteine g<input id="nutProtein" type="number" value="${log.protein??''}"></label><label>Carboidrati g<input id="nutCarbs" type="number" value="${log.carbs??''}"></label><label>Grassi g<input id="nutFat" type="number" value="${log.fat??''}"></label><label>Acqua L<input id="nutWater" type="number" step="0.25" value="${log.water??''}"></label></div><button class="btn" style="margin-top:12px" onclick="saveNutrition('${d}')">Salva</button></section>
+  <section class="card"><h3>Target</h3><div class="form-grid"><label>kcal<input id="targetCalories" type="number" value="${t.calories}"></label><label>Proteine g<input id="targetProtein" type="number" value="${t.protein}"></label><label>Carbo g<input id="targetCarbs" type="number" value="${t.carbs}"></label><label>Grassi g<input id="targetFat" type="number" value="${t.fat}"></label></div><button class="btn secondary" style="margin-top:12px" onclick="saveNutritionTargets()">Aggiorna target</button></section></div>`;
 }
-function saveNutrition(d){state.nutritionLogs[d]={protein:numOrNull('nutProtein'),water:numOrNull('nutWater'),meals:numOrNull('nutMeals'),plants:numOrNull('nutPlants'),note:val('nutNote')||''};save();toast('Nutrizione salvata')}
+function saveNutrition(d){state.nutritionLogs[d]={...(state.nutritionLogs[d]||{}),calories:numOrNull('nutCalories'),protein:numOrNull('nutProtein'),carbs:numOrNull('nutCarbs'),fat:numOrNull('nutFat'),water:numOrNull('nutWater')};save();toast('Salvato');nutritionPage()}
+function saveNutritionTargets(){state.settings.nutrition={calories:+val('targetCalories')||2400,protein:+val('targetProtein')||150,carbs:+val('targetCarbs')||300,fat:+val('targetFat')||67};save();toast('Target aggiornati');nutritionPage()}
 
 function sleepPage(){
   const d=dateKey(TODAY()),log=state.sleepLogs[d]||state.readiness[d]||{},r=latestReadiness(d);
