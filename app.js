@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='2.3.0';
+const APP_VERSION='2.3.1';
 const STORE_KEY='sc-state';
 const TODAY=()=>new Date();
 const pad=n=>String(n).padStart(2,'0');
@@ -217,18 +217,20 @@ function latestReadiness(date){
 }
 function scoreReadiness(date){
   const r=latestReadiness(date), vals=[];
-  if(r.sleepHours!=null){const h=+r.sleepHours;vals.push(h>=7&&h<=9?100:h>=6?75:h>=5?50:25)}
-  if(r.sleepQuality!=null)vals.push(clamp(+r.sleepQuality*20,0,100));
-  if(r.energy!=null)vals.push(clamp(+r.energy*20,0,100));
-  if(r.soreness!=null)vals.push(clamp((6-(+r.soreness))*20,0,100));
-  if(r.stress!=null)vals.push(clamp((6-(+r.stress))*20,0,100));
-  if(r.rhr!=null&&state.coros.restingHr){const d=+r.rhr-state.coros.restingHr;vals.push(d<=0?100:d<=3?85:d<=6?65:d<=10?40:20)}
-  if(r.hrv!=null&&state.coros.hrvBaseline){const q=+r.hrv/state.coros.hrvBaseline;vals.push(q>=1?100:q>=.9?82:q>=.8?64:q>=.7?45:25)}
-  if(r.corosRecovery!=null)vals.push(clamp(+r.corosRecovery,0,100));
-  if(r.temperatureDelta!=null){const t=Math.abs(+r.temperatureDelta);vals.push(t<.25?100:t<.5?80:t<.8?55:30)}
-  let score=vals.length?Math.round(vals.reduce((a,b)=>a+b,0)/vals.length):70;
-  const sh=shiftOn(date);if(sh)score-=sh.load>=4?24:sh.load>=3?16:sh.load===2?7:3;
-  return clamp(score,0,100);
+  if(r.sleepHours!=null){const h=+r.sleepHours;vals.push({v:h>=7&&h<=9?100:h>=6?75:h>=5?50:25,w:2})}
+  if(r.sleepQuality!=null)vals.push({v:clamp(+r.sleepQuality*20,0,100),w:1});
+  if(r.energy!=null)vals.push({v:clamp(+r.energy*20,0,100),w:1});
+  if(r.soreness!=null)vals.push({v:clamp((6-(+r.soreness))*20,0,100),w:1});
+  if(r.stress!=null)vals.push({v:clamp((6-(+r.stress))*20,0,100),w:1});
+  if(r.rhr!=null&&state.coros.restingHr){const d=+r.rhr-state.coros.restingHr;vals.push({v:d<=0?100:d<=3?85:d<=6?65:d<=10?40:20,w:1.5})}
+  if(r.hrv!=null&&state.coros.hrvBaseline){const q=+r.hrv/state.coros.hrvBaseline;vals.push({v:q>=1?100:q>=.9?82:q>=.8?64:q>=.7?45:25,w:2})}
+  if(r.corosRecovery!=null)vals.push({v:clamp(+r.corosRecovery,0,100),w:1});
+  if(r.temperatureDelta!=null){const t=Math.abs(+r.temperatureDelta);vals.push({v:t<.25?100:t<.5?80:t<.8?55:30,w:1})}
+  let score=vals.length?Math.round(vals.reduce((s,x)=>s+x.v*x.w,0)/vals.reduce((s,x)=>s+x.w,0)):70;
+  const sh=shiftOn(date);if(sh)score-=sh.load>=4?18:sh.load>=3?12:sh.load===2?6:2;
+  const key='sc-ready-'+date, cached=JSON.parse(localStorage.getItem(key)||'null'), now=Date.now();
+  if(cached&&now-cached.at<6*3600000){score=Math.round(cached.score*.7+score*.3);if(Math.abs(score-cached.score)<4)score=cached.score}
+  score=clamp(score,0,100);localStorage.setItem(key,JSON.stringify({score,at:now}));return score;
 }
 function readinessBand(score){return score>=75?'good':score>=55?'warn':'bad'}
 function readinessLabel(score){return score>=75?'Pronto':score>=55?'Riduci':'Recupera'}
@@ -263,9 +265,9 @@ function todayView(date=state.selectedDate||dateKey(TODAY())){
       <div class="actions"><button class="btn" onclick="startRecommended('${date}')">${rec.session.type==='recovery'?'Recupero':'Inizia'}</button><button class="btn secondary" onclick="openCheckin('${date}')">Check-in</button></div>
     </section>
     <section class="grid3">
-      <div class="metric"><small>Sonno</small><b>${r.sleepHours??'–'}${r.sleepHours!=null?' h':''}</b></div>
-      <div class="metric"><small>HRV</small><b>${r.hrv??'–'}${r.hrv!=null?' ms':''}</b></div>
-      <div class="metric"><small>FC riposo</small><b>${r.rhr??'–'}${r.rhr!=null?' bpm':''}</b></div>
+      <button class="metric metric-btn" onclick="healthTrendPage('sleep')"><small>Sonno</small><b>${r.sleepHours??'–'}${r.sleepHours!=null?' h':''}</b></button>
+      <button class="metric metric-btn" onclick="healthTrendPage('hrv')"><small>HRV</small><b>${r.hrv??'–'}${r.hrv!=null?' ms':''}</b></button>
+      <button class="metric metric-btn" onclick="healthTrendPage('rhr')"><small>FC riposo</small><b>${r.rhr??'–'}${r.rhr!=null?' bpm':''}</b></button>
     </section>
     <section class="card"><div class="row"><h3>Oggi · nutrizione</h3><button class="btn ghost smallbtn" onclick="moreView('nutrition')">Apri</button></div>
       <div class="grid2" style="margin-top:10px"><div class="metric"><small>kcal</small><b>${macro(nl.calories,nt.calories)}</b></div><div class="metric"><small>Proteine</small><b>${macro(nl.protein,nt.protein)} g</b></div><div class="metric"><small>Carbo</small><b>${macro(nl.carbs,nt.carbs)} g</b></div><div class="metric"><small>Grassi</small><b>${macro(nl.fat,nt.fat)} g</b></div></div>
@@ -273,6 +275,14 @@ function todayView(date=state.selectedDate||dateKey(TODAY())){
     <section class="card"><div class="row"><h3>Stato</h3><span class="pill">${rec.adjust}</span></div><div class="grid3" style="margin-top:10px"><div class="metric"><small>Energia</small><b>${r.energy??'–'}/5</b></div><div class="metric"><small>Dolori</small><b>${r.soreness??'–'}/5</b></div><div class="metric"><small>Stress</small><b>${r.stress??'–'}/5</b></div></div></section>
     ${done.length?`<section class="card"><h3>Completato</h3>${done.map(historyLine).join('')}</section>`:''}
   </div>`;
+}
+
+function healthTrendPage(kind){
+  const meta={sleep:['Sonno','h'],hrv:['HRV','ms'],rhr:['FC a riposo','bpm'],steps:['Passi','']},m=meta[kind]||meta.hrv;
+  const rows=Object.entries(state.sleepLogs||{}).sort((a,b)=>a[0].localeCompare(b[0])).slice(-30).map(([d,x])=>({d,v:kind==='sleep'?(x.hours??x.sleepHours):x[kind]})).filter(x=>x.v!=null);
+  const vals=rows.map(x=>+x.v);
+  setHeader(m[0],'ultimi 30 giorni');
+  app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="todayView()">‹ Oggi</button><section class="card"><h2>${m[0]}</h2>${vals.length>1?sparkline(vals):'<p class="muted small">Servono più dati per il grafico.</p>'}<div class="history-item">${rows.slice(-14).reverse().map(x=>`<div class="row"><span>${fmtDate(x.d,{day:'numeric',month:'short'})}</span><b>${x.v} ${m[1]}</b></div>`).join('')}</div></section>${kind==='rhr'?'<section class="card"><p class="muted small">FC a riposo = valore HealthKit “Resting Heart Rate”, stimato da Apple Watch nei periodi di inattività; non è semplicemente l’ultima frequenza cardiaca misurata. È utile soprattutto come trend rispetto alla tua baseline.</p></section>':''}</div>`;
 }
 
 function openCheckin(date=state.selectedDate){
@@ -308,20 +318,19 @@ function weekStart(d=TODAY()){
   const x=new Date(d),day=(x.getDay()+6)%7;x.setHours(0,0,0,0);x.setDate(x.getDate()-day);return x;
 }
 function weekView(){
-  setTab('week');setHeader('Settimana','Piano adattivo: i turni pesano come carico non sportivo');
+  setTab('week');setHeader('Settimana','');
   const ws=weekStart(parseDate(state.selectedDate||dateKey(TODAY()))),today=dateKey(TODAY());
   const days=Array.from({length:7},(_,i)=>{const d=dateKey(addDays(ws,i)),rec=recommendation(d),base=baseSessionFor(d),done=isDone(d,base.id)||historyOn(d).length>0;return `<button class="day ${d===today?'today':''} ${done?'done':''}" onclick="todayView('${d}')"><div><div class="dow">${parseDate(d).toLocaleDateString('it-IT',{weekday:'short'})}</div><div class="date">${parseDate(d).getDate()}</div></div><div><b>${esc(rec.session.short)}</b><div class="muted tiny">${esc(rec.adjust)}${rec.shift?` · <span class="shift">${esc(rec.shift.title)}</span>`:''}</div></div><i class="status-dot"></i></button>`});
-  app.innerHTML=`<div class="stack"><section class="card"><div class="row"><div><h2>Settimana corrente</h2><p class="muted small" style="margin:0">Base: 3 forza + 2 Z2. Il corso endurance può sostituire una Z2.</p></div></div><div class="week" style="margin-top:14px">${days.join('')}</div></section>
-  <section class="card"><h3>Regola del blocco 25–30 settembre</h3><p class="muted small">Con notti, reperibilità e 24 ore, SmartCoach riduce automaticamente il volume o propone recupero. Le sedute produttive vengono privilegiate prima del blocco e riprese quando la readiness torna buona.</p></section></div>`;
+  app.innerHTML=`<div class="stack"><section class="card"><div class="week">${days.join('')}</div></section></div>`;
 }
-
 function startRecommended(date){const rec=recommendation(date);openSession(rec.session.id,date,rec)}
 function trainingHub(){
-  setTab('train');setHeader('Training','Scegli una seduta o sostituisci casa/palestra');
+  setTab('train');setHeader('Training','');const d=dateKey(TODAY()),rec=recommendation(d);
+  const adaptiveMins=s=>{const av=+(latestReadiness(d).availableMinutes||0);return av?Math.min(s.mins||45,av):Math.round((s.mins||45)*(rec.cardioFactor||1))};
   app.innerHTML=`<div class="stack"><section class="card"><div class="segment"><button class="${state.place==='CASA'?'active':''}" onclick="setPlace('CASA')">Casa</button><button class="${state.place==='PALESTRA'?'active':''}" onclick="setPlace('PALESTRA')">Palestra</button></div></section>
-    ${Object.values(STRENGTH).map(s=>`<button class="day" onclick="openSession('${s.id}','${dateKey(TODAY())}')"><div><div class="dow">FORZA</div><div class="date">${s.exercises.length}</div></div><div><b>${esc(s.title)}</b><div class="muted tiny">${esc(s.focus)} · ${s.mins} min</div></div><span>›</span></button>`).join('')}
-    ${[CARDIO.z2short,CARDIO.z2long,CARDIO.runQuality].map(s=>`<button class="day" onclick="openSession('${s.id}','${dateKey(TODAY())}')"><div><div class="dow">CARDIO</div><div class="date">Z2</div></div><div><b>${esc(s.title)}</b><div class="muted tiny">${s.minMinutes}–${s.maxMinutes} min · corsa o cyclette</div></div><span>›</span></button>`).join('')}
-    <button class="day" onclick="openSession('recovery','${dateKey(TODAY())}')"><div><div class="dow">EASY</div><div class="date">20</div></div><div><b>Recupero / mobilità</b><div class="muted tiny">Anche, lower back, camminata</div></div><span>›</span></button>
+    <button class="day today" onclick="startRecommended('${d}')"><div><div class="dow">OGGI</div><div class="date">${adaptiveMins(rec.session)}</div></div><div><b>${esc(rec.session.title)}</b><div class="muted tiny">${state.place==='CASA'?'Casa':'Palestra'} · ${esc(rec.adjust)}</div></div><span>›</span></button>
+    ${Object.values(STRENGTH).map(s=>`<button class="day" onclick="openSession('${s.id}','${d}')"><div><div class="dow">FORZA</div><div class="date">${adaptiveMins(s)}</div></div><div><b>${esc(s.title)}</b><div class="muted tiny">${state.place==='CASA'?'varianti casa':'varianti palestra'} · ${s.exercises.length} esercizi</div></div><span>›</span></button>`).join('')}
+    ${[CARDIO.z2short,CARDIO.z2long].map(s=>`<button class="day" onclick="openSession('${s.id}','${d}')"><div><div class="dow">CARDIO</div><div class="date">${adaptiveMins(s)}</div></div><div><b>${esc(s.title)}</b><div class="muted tiny">corsa o cyclette</div></div><span>›</span></button>`).join('')}
   </div>`;
 }
 function setPlace(p){state.place=p;save();trainingHub()}
