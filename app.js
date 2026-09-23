@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='2.2.0';
+const APP_VERSION='2.2.1';
 const STORE_KEY='sc-state';
 const TODAY=()=>new Date();
 const pad=n=>String(n).padStart(2,'0');
@@ -116,7 +116,23 @@ save();
 const HEALTH_SYNC={endpoint:localStorage.getItem('sc-health-endpoint')||new URL('./api/health',location.href).href,key:localStorage.getItem('sc-health-key')||''};
 function healthHeaders(){const h={'Accept':'application/json'};if(HEALTH_SYNC.key)h['Authorization']='Bearer '+HEALTH_SYNC.key;return h}
 function healthNum(o,keys){for(const k of keys){const v=o?.[k];if(v!=null&&v!==''&&!Number.isNaN(+v))return +v}return null}
-function normalizeHealthPayload(raw){const src=raw?.data||raw?.metrics||raw?.latest||raw||{};return {sleep:healthNum(src,['sleepHours','sleep_hours','sleepDurationHours','sleep_duration_hours','sleep']),hrv:healthNum(src,['hrv','hrvMs','hrv_ms','heartRateVariability','heart_rate_variability']),rhr:healthNum(src,['restingHr','restingHR','resting_hr','restingHeartRate','resting_heart_rate']),respiratory:healthNum(src,['respiratoryRate','respiratory_rate']),temp:healthNum(src,['wristTemperature','wrist_temperature','temperature']),at:src.timestamp||src.date||raw?.timestamp||raw?.date||new Date().toISOString()}}
+function normalizeHealthPayload(raw){
+  const root=raw?.payload??raw?.data??raw;
+  const flat=[];
+  const walk=(v,path='')=>{if(v==null)return;if(Array.isArray(v)){v.forEach((x,i)=>walk(x,path+'['+i+']'));return}if(typeof v==='object'){Object.entries(v).forEach(([k,x])=>walk(x,path?path+'.'+k:k));return}flat.push([path.toLowerCase(),v])};
+  walk(root);
+  const numberFor=(terms)=>{for(const [p,v] of flat){if(terms.some(t=>p.includes(t))){const n=Number(v);if(Number.isFinite(n))return n}}return null};
+  let sleep=numberFor(['sleephours','sleep_hours','sleepdurationhours','sleep_duration_hours']);
+  if(sleep==null){const mins=numberFor(['sleepduration','sleep_duration','asleepduration','total_sleep']);if(mins!=null)sleep=mins>24?mins/60:mins}
+  return {
+    sleep,
+    hrv:numberFor(['heartratevariability','heart_rate_variability','hrv']),
+    rhr:numberFor(['restingheartrate','resting_heart_rate','restinghr','resting_hr']),
+    respiratory:numberFor(['respiratoryrate','respiratory_rate']),
+    temp:numberFor(['wristtemperature','wrist_temperature']),
+    at:root?.timestamp||root?.date||raw?.receivedAt||new Date().toISOString()
+  }
+}
 function applyHealthSnapshot(x){if(!x||[x.sleep,x.hrv,x.rhr,x.respiratory,x.temp].every(v=>v==null))return false;const d=(String(x.at).match(/^\d{4}-\d{2}-\d{2}/)||[dateKey(TODAY())])[0];state.health={...(state.health||{}),latest:x,lastSync:new Date().toISOString(),status:'ok'};const old=state.readiness[d]||{};state.readiness[d]={...old,...(x.sleep!=null?{sleepHours:x.sleep}:{}),...(x.hrv!=null?{hrv:x.hrv}:{}),...(x.rhr!=null?{rhr:x.rhr}:{})};state.sleepLogs[d]={...(state.sleepLogs[d]||{}),...(x.sleep!=null?{hours:x.sleep}:{}),...(x.hrv!=null?{hrv:x.hrv}:{}),...(x.rhr!=null?{rhr:x.rhr}:{})};save();return true}
 async function syncHealthOnOpen({silent=false}={}){const endpoint=localStorage.getItem('sc-health-endpoint')||HEALTH_SYNC.endpoint;if(!endpoint)return false;if(!silent)toast('Sincronizzazione Apple Health…');try{const sep=endpoint.includes('?')?'&':'?';const res=await fetch(endpoint+sep+'t='+Date.now(),{method:'GET',headers:healthHeaders(),cache:'no-store'});if(!res.ok)throw new Error('HTTP '+res.status);const x=normalizeHealthPayload(await res.json());if(!applyHealthSnapshot(x))throw new Error('Dati Health non riconosciuti');if(!silent)toast('Apple Health aggiornato ✓');return true}catch(e){state.health={...(state.health||{}),status:'error',error:String(e.message||e),lastAttempt:new Date().toISOString()};save();if(!silent)toast('Health non aggiornato');return false}}
 function healthFreshness(){const at=state.health?.lastSync;if(!at)return 'mai';const mins=Math.max(0,Math.round((Date.now()-new Date(at).getTime())/60000));return mins<1?'adesso':mins<60?`${mins} min fa`:mins<1440?`${Math.round(mins/60)} h fa`:`${Math.round(mins/1440)} g fa`}
