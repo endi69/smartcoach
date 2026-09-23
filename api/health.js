@@ -22,6 +22,8 @@ export default async function handler(req,res){
   if(!authorized(req)) return res.status(401).json({ok:false,error:'unauthorized'});
   try{
     if(req.method==='POST'){
+      const isTest = req.headers['x-health-exporter-test']==='true' || req.query?.test==='1' || req.body==null || req.body==='';
+      if(isTest) return res.status(200).json({ok:true,test:true});
       let payload=req.body;
       if(typeof payload==='string'){try{payload=payload.trim()?JSON.parse(payload):{};}catch{payload={raw:payload};}}
       if(payload==null) payload={};
