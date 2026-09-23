@@ -47,14 +47,20 @@ function convert(kind,value,unit=''){
   return v;
 }
 function extractMetrics(root,receivedAt){
-  const found={hrv:[],rhr:[],respiratory:[],temp:[],sleep:[],steps:[]};
+  const found={hrv:[],rhr:[],respiratory:[],temp:[],sleep:[],steps:[]},sleepIntervals=[];
   const valueKeys=new Set(['value','quantity','average','avg','mean','latest','mostrecent','most_recent','total','duration','hours','minutes']);
   const descriptorKeys=/^(name|type|identifier|datatype|data_type|metric|metricname|metric_name|displayname|display_name|quantitytype|quantity_type|category)$/i;
   const unitKeys=/^(unit|units)$/i;
+  const dateOf=(o,keys)=>{for(const k of keys){if(typeof o?.[k]==='string'&&timeValue(o[k]))return o[k];}return null};
   function add(kind,value,date,unit){const v=convert(kind,value,unit);if(v==null)return;found[kind].push({value:v,date:date||receivedAt||new Date().toISOString()});}
   function walk(v,path='',ctx='',inheritedDate=receivedAt){
     if(v==null)return;if(Array.isArray(v)){v.forEach((x,i)=>walk(x,path+'['+i+']',ctx,inheritedDate));return;}if(typeof v!=='object')return;
-    const entries=Object.entries(v),desc=entries.filter(([k,x])=>descriptorKeys.test(k)&&typeof x==='string').map(([,x])=>x).join(' '),localCtx=(ctx+' '+path+' '+desc).trim(),localDate=isoFromObject(v,inheritedDate),unit=entries.find(([k,x])=>unitKeys.test(k)&&typeof x==='string')?.[1]||'';
+    const entries=Object.entries(v),desc=entries.filter(([k,x])=>descriptorKeys.test(k)&&typeof x==='string').map(([,x])=>x).join(' '),localCtx=(ctx+' '+path+' '+desc).trim(),kind=kindFor(localCtx),localDate=isoFromObject(v,inheritedDate),unit=entries.find(([k,x])=>unitKeys.test(k)&&typeof x==='string')?.[1]||'';
+    if(kind==='sleep'){
+      const st=dateOf(v,['startDate','start_date','start','from']),en=dateOf(v,['endDate','end_date','end','to']);
+      const status=clean(desc+' '+(v.value??'')+' '+(v.categoryValue??''));
+      if(st&&en&&timeValue(en)>timeValue(st)&&!status.includes('inbed')&&!status.includes('awake'))sleepIntervals.push({start:st,end:en});
+    }
     for(const [k,x] of entries){const n=num(x);if(n==null)continue;const direct=kindFor(k),inherited=kindFor(localCtx),nk=clean(k);if(direct)add(direct,n,localDate,unit);else if(inherited&&(valueKeys.has(nk)||nk.endsWith('value')||nk.endsWith('average')||nk.endsWith('duration')))add(inherited,n,localDate,unit);}
     for(const [k,x] of entries)if(x&&typeof x==='object')walk(x,path?path+'.'+k:k,localCtx,localDate);
   }
@@ -62,23 +68,16 @@ function extractMetrics(root,receivedAt){
   const out={},dates={},series={};
   const dayKey=d=>{const t=new Date(d);return Number.isFinite(t.getTime())?t.toISOString().slice(0,10):null};
   const median=a=>{const x=a.slice().sort((a,b)=>a-b),n=x.length;return n?n%2?x[(n-1)/2]:(x[n/2-1]+x[n/2])/2:null};
+  const inSleep=date=>{const t=timeValue(date);return sleepIntervals.some(x=>t>=timeValue(x.start)&&t<=timeValue(x.end));};
   for(const [kind,arr0] of Object.entries(found)){
     if(!arr0.length)continue;
-    const arr=arr0.filter(x=>Number.isFinite(x.value)).sort((a,b)=>timeValue(a.date)-timeValue(b.date));
-    const byDay={};for(const x of arr){const d=dayKey(x.date);if(d)(byDay[d]||(byDay[d]=[])).push(x);}
-    series[kind]=Object.entries(byDay).map(([date,xs])=>{
-      const values=xs.map(x=>x.value),last=xs.at(-1);
-      let value;
-      if(kind==='steps') value=values.reduce((a,b)=>a+b,0);
-      else if(kind==='sleep') value=values.length>1?values.reduce((a,b)=>a+b,0):values[0];
-      else if(kind==='hrv') value=median(values);
-      else if(kind==='rhr') value=median(values);
-      else value=median(values);
-      return {date,value:Math.round(value*100)/100,samples:values.length,lastAt:last.date};
-    }).sort((a,b)=>a.date.localeCompare(b.date));
+    let arr=arr0.filter(x=>Number.isFinite(x.value)).sort((a,b)=>timeValue(a.date)-timeValue(b.date));
+    if(kind==='hrv'&&sleepIntervals.length){const asleep=arr.filter(x=>inSleep(x.date));if(asleep.length)arr=asleep;}
+    const byDay={};for(const x of arr){let d=dayKey(x.date);if(!d)continue;if(kind==='hrv'&&inSleep(x.date)){const dt=new Date(x.date);if(dt.getUTCHours()<12)d=new Date(dt.getTime()-86400000).toISOString().slice(0,10);} (byDay[d]||(byDay[d]=[])).push(x);}
+    series[kind]=Object.entries(byDay).map(([date,xs])=>{const values=xs.map(x=>x.value),last=xs.at(-1);let value;if(kind==='steps')value=values.reduce((a,b)=>a+b,0);else if(kind==='sleep')value=values.length>1?values.reduce((a,b)=>a+b,0):values[0];else value=median(values);return {date,value:Math.round(value*100)/100,samples:values.length,lastAt:last.date,source:kind==='hrv'&&sleepIntervals.length?'sleep-window':'daily'};}).sort((a,b)=>a.date.localeCompare(b.date));
     const latest=series[kind].at(-1);if(latest){out[kind]=latest.value;dates[kind]=latest.lastAt||latest.date;}
   }
-  return {metrics:out,metricDates:dates,series};
+  return {metrics:out,metricDates:dates,series,sleepIntervals:sleepIntervals.slice(-20)};
 }
 async function readJson(path){
   const result=await get(path,{...blobOpts(),access:'private',useCache:false});
