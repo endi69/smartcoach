@@ -1,4 +1,4 @@
-import { put, get } from '@vercel/blob';
+import { put, get, list } from '@vercel/blob';
 
 const LEGACY_PATH='smartcoach/health/latest.json';
 const SUMMARY_PATH='smartcoach/health/summary.json';
@@ -102,6 +102,34 @@ function mergeSummary(previous,incoming,receivedAt){
   out.updatedAt=new Date().toISOString();
   return out;
 }
+async function rebuildSummaryFromInbox(){
+  const listed=await list({...blobOpts(),prefix:BATCH_PREFIX,limit:1000});
+  const blobs=(listed.blobs||[]).slice().sort((a,b)=>String(a.pathname).localeCompare(String(b.pathname)));
+  let summary=null;
+  const schemas=new Set();
+  const collectSchema=(v,path='',depth=0)=>{
+    if(v==null||depth>6||schemas.size>=120)return;
+    if(Array.isArray(v)){if(v.length)collectSchema(v[0],path+'[]',depth+1);return;}
+    if(typeof v!=='object')return;
+    for(const [k,x] of Object.entries(v)){
+      const p=path?path+'.'+k:k; schemas.add(p);
+      if(x&&typeof x==='object')collectSchema(x,p,depth+1);
+    }
+  };
+  for(const blob of blobs){
+    try{
+      const env=await readJson(blob.pathname);
+      if(!env)continue;
+      const receivedAt=env.receivedAt||blob.uploadedAt||new Date().toISOString();
+      const raw=env.payload??env;
+      collectSchema(raw);
+      const extracted=extractMetrics(raw,receivedAt);
+      summary=mergeSummary(summary,extracted,receivedAt);
+    }catch{}
+  }
+  return {summary,batchCount:blobs.length,schemaPaths:[...schemas]};
+}
+
 
 export default async function handler(req,res){
   headers(res);
@@ -123,20 +151,27 @@ export default async function handler(req,res){
       return res.status(200).json({ok:true,accepted:true,stored:true,receivedAt,recognized:Object.keys(incoming.metrics),batch:batchPath});
     }
     if(req.method==='GET'){
-      let summary=null; try{summary=await readJson(SUMMARY_PATH);}catch{}
+      let rebuilt={summary:null,batchCount:0,schemaPaths:[]};
+      try{rebuilt=await rebuildSummaryFromInbox();}catch{}
+      let summary=rebuilt.summary;
       if(!summary){
         let legacy=null; try{legacy=await readJson(LEGACY_PATH);}catch{}
         if(legacy){
           const receivedAt=legacy.receivedAt||new Date().toISOString();
           const extracted=extractMetrics(legacy.payload??legacy,receivedAt);
           summary=mergeSummary(null,extracted,receivedAt);
-          if(Object.keys(summary.metrics).length)await writeJson(SUMMARY_PATH,summary);
         }
       }
+      if(summary&&Object.keys(summary.metrics||{}).length)await writeJson(SUMMARY_PATH,summary);
       if(req.query?.diag==='1'){
-        return res.status(200).json({ok:true,service:'smartcoach-health',storage:'private-blob',tokenConfigured:true,summaryExists:!!summary,recognized:Object.keys(summary?.metrics||{}),lastReceivedAt:summary?.lastReceivedAt||null});
+        return res.status(200).json({
+          ok:true,service:'smartcoach-health',storage:'private-blob',tokenConfigured:true,
+          batchCount:rebuilt.batchCount,summaryExists:!!summary,
+          recognized:Object.keys(summary?.metrics||{}),lastReceivedAt:summary?.lastReceivedAt||null,
+          schemaPaths:rebuilt.schemaPaths.slice(0,120)
+        });
       }
-      if(!summary)return res.status(404).json({ok:false,error:'health_data_not_found'});
+      if(!summary||!Object.keys(summary.metrics||{}).length)return res.status(404).json({ok:false,error:'health_metrics_not_recognized',batchCount:rebuilt.batchCount});
       return res.status(200).json({ok:true,service:'smartcoach-health',metrics:summary.metrics||{},metricDates:summary.metricDates||{},receivedAt:summary.lastReceivedAt||summary.updatedAt||null});
     }
     return res.status(405).json({ok:false,error:'method_not_allowed'});
