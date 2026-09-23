@@ -25,7 +25,8 @@ const TERMS={
   rhr:['restingheartrate','restinghr','hkquantitytypeidentifierrestingheartrate'],
   respiratory:['respiratoryrate','hkquantitytypeidentifierrespiratoryrate'],
   temp:['wristtemperature','wristtemp','applewalkingsteadinesstemperature'],
-  sleep:['sleephours','sleepduration','totalsleep','timeasleep','asleepduration']
+  sleep:['sleephours','sleepduration','totalsleep','timeasleep','asleepduration'],
+  steps:['stepcount','steps','hkquantitytypeidentifierstepcount']
 };
 function kindFor(s){
   const x=clean(s);
@@ -46,7 +47,7 @@ function convert(kind,value,unit=''){
   return v;
 }
 function extractMetrics(root,receivedAt){
-  const found={hrv:[],rhr:[],respiratory:[],temp:[],sleep:[]};
+  const found={hrv:[],rhr:[],respiratory:[],temp:[],sleep:[],steps:[]};
   const valueKeys=new Set(['value','quantity','average','avg','mean','latest','mostrecent','most_recent','total','duration','hours','minutes']);
   const descriptorKeys=/^(name|type|identifier|datatype|data_type|metric|metricname|metric_name|displayname|display_name|quantitytype|quantity_type|category)$/i;
   const unitKeys=/^(unit|units)$/i;
