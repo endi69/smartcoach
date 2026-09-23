@@ -1,4 +1,4 @@
-import { put, get } from '@vercel/blob';
+import { put, list } from '@vercel/blob';
 
 const PATH='smartcoach/health/latest.json';
 
@@ -28,10 +28,12 @@ export default async function handler(req,res){
       return res.status(200).json({ok:true,receivedAt:envelope.receivedAt});
     }
     if(req.method==='GET'){
-      const result=await get(PATH,{access:'private',useCache:false,token:process.env.BLOB_READ_WRITE_TOKEN});
-      if(!result) return res.status(404).json({ok:false,error:'no_health_data'});
-      const body=await new Response(result.stream).json();
-      return res.status(200).json(body);
+      const found=await list({prefix:PATH,limit:1,token:process.env.BLOB_READ_WRITE_TOKEN});
+      const blob=found.blobs?.find(b=>b.pathname===PATH)||found.blobs?.[0];
+      if(!blob) return res.status(404).json({ok:false,error:'no_health_data'});
+      const rr=await fetch(blob.downloadUrl||blob.url,{headers:{Authorization:`Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`},cache:'no-store'});
+      if(!rr.ok) throw new Error('blob_read_'+rr.status);
+      return res.status(200).json(await rr.json());
     }
     return res.status(405).json({ok:false,error:'method_not_allowed'});
   }catch(e){
