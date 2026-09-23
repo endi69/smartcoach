@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='2.3.1';
+const APP_VERSION='2.4.0';
 const STORE_KEY='sc-state';
 const TODAY=()=>new Date();
 const pad=n=>String(n).padStart(2,'0');
@@ -90,7 +90,7 @@ function defaultState(){
     version:2,place:'CASA',history:[],selectedDate:dateKey(TODAY()),selectedSession:null,exerciseChoice:{},
     readiness:{},bodyLogs:[{date:'2026-09-23',weight:73,waist:null}],nutritionLogs:{},sleepLogs:{},
     coros:{...COROS_DEFAULT},shifts:SHIFT_DEFAULT.map(x=>({...x})),
-    settings:{cardioDefault:'bike',reentry:true,weekStart:'monday',goal:'recomp',nutrition:{calories:2400,protein:150,carbs:300,fat:67}},
+    settings:{cardioDefault:'bike',reentry:true,weekStart:'monday',goal:'recomp',nutrition:{calories:2400,protein:150,carbs:300,fat:67},baselineOpen:false},
     profile:{...PROFILE,baseline:{...PROFILE.baseline}},moreView:null
   };
 }
@@ -237,19 +237,17 @@ function readinessBand(score){return score>=75?'good':score>=55?'warn':'bad'}
 function readinessLabel(score){return score>=75?'Pronto':score>=55?'Riduci':'Recupera'}
 
 function recommendation(date){
-  const base=baseSessionFor(date),score=scoreReadiness(date),shift=shiftOn(date);
-  let session=base,adjust='Normale',reason='Programma della settimana',setDelta=0,cardioFactor=1;
-  if(shift?.load>=3){session=CARDIO.recovery;adjust='Recupero';reason=`Carico lavorativo alto: ${shift.title}`;setDelta=-1;cardioFactor=.6}
-  else if(score<55){session=CARDIO.recovery;adjust='Recupero';reason='Readiness bassa: oggi conviene proteggere il recupero';setDelta=-1;cardioFactor=.6}
-  else if(score<75){adjust='-20% volume';reason='Readiness intermedia: mantieni lo stimolo senza accumulare fatica';setDelta=-1;cardioFactor=.8}
-  else if(shift?.load===2){adjust='Compatto';reason=`Turno ${shift.title}: seduta più breve`;setDelta=-1;cardioFactor=.8}
-  const avail=+(latestReadiness(date).availableMinutes||0);
-  if(session.type!=='recovery'&&avail&&avail<=35&&score>=55){adjust=`Compatto ${avail} min`;reason=`Tempo disponibile: ${avail} min`;setDelta=Math.min(setDelta,-1);cardioFactor=Math.min(cardioFactor,avail<=25?.65:.8)}
-  if(!currentReentry(date)&&base.id==='z2short'&&session===base&&score>=75&&(!shift||shift.load<=1)){session=CARDIO.runQuality;adjust='Qualità controllata';reason='Dopo la fase di rientro: primo stimolo di velocità, senza massimale'}
-  if(base.type==='recovery'&&session===base){adjust='Recupero';reason='Giorno di recupero programmato'}
-  return {base,session,score,shift,adjust,reason,setDelta,cardioFactor};
+  const base=baseSessionFor(date),score=scoreReadiness(date),shift=shiftOn(date),r=latestReadiness(date);
+  let session=base,adjust='Completo',reason='',setDelta=0,cardioFactor=1;
+  const avail=+(r.availableMinutes||50);
+  if(shift?.load>=4||score<50){session=CARDIO.recovery;adjust='Recupero';reason=shift?.load>=4?'Turno molto impegnativo':'Recupero insufficiente';setDelta=-2;cardioFactor=.55}
+  else if(shift?.load>=3||score<65){adjust='Ridotto';reason=shift?.load>=3?'Turno impegnativo':'Fatica sopra baseline';setDelta=-1;cardioFactor=.75}
+  else if(score<78||shift?.load===2){adjust='Compatto';reason='Stimolo utile senza volume superfluo';setDelta=-1;cardioFactor=.85}
+  if(session.type!=='recovery'&&avail<=35){adjust=`${avail} min`;reason='Adattato al tempo disponibile';setDelta=Math.min(setDelta,avail<=25?-2:-1);cardioFactor=Math.min(cardioFactor,avail<=25?.6:.8)}
+  if(!currentReentry(date)&&base.id==='z2short'&&session===base&&score>=80&&(!shift||shift.load<=1)){session=CARDIO.runQuality;adjust='Qualità';reason='Recupero buono'}
+  if(base.type==='recovery'&&session===base){adjust='Recupero';reason='Recupero programmato'}
+  return {base,session,score,shift,adjust,reason,setDelta,cardioFactor,availableMinutes:avail};
 }
-
 function nutritionTargets(){
   const n=state.settings?.nutrition||{},w=state.profile.weightKg||73;
   return {calories:+n.calories||Math.round(w*33),protein:+n.protein||Math.round(w*2),carbs:+n.carbs||Math.round(w*4),fat:+n.fat||Math.round(w*.9)};
@@ -269,7 +267,7 @@ function todayView(date=state.selectedDate||dateKey(TODAY())){
       <button class="metric metric-btn" onclick="healthTrendPage('sleep')"><small>Sonno</small><b>${r.sleepHours??'–'}${r.sleepHours!=null?' h':''}</b></button>
       <button class="metric metric-btn" onclick="healthTrendPage('hrv')"><small>HRV</small><b>${r.hrv??'–'}${r.hrv!=null?' ms':''}</b></button>
       <button class="metric metric-btn" onclick="healthTrendPage('rhr')"><small>FC riposo</small><b>${r.rhr??'–'}${r.rhr!=null?' bpm':''}</b></button>
-    <div class="metric"><small>Passi</small><b>${steps!=null?Math.round(steps).toLocaleString('it-IT'):'–'}</b></div></section>
+    <button class="metric metric-btn" onclick="healthTrendPage('steps')"><small>Passi</small><b>${steps!=null?Math.round(steps).toLocaleString('it-IT'):'–'}</b></button></section>
     <section class="card"><div class="row"><h3>Oggi · nutrizione</h3><button class="btn ghost smallbtn" onclick="moreView('nutrition')">Apri</button></div>
       <div class="grid2" style="margin-top:10px"><div class="metric"><small>kcal</small><b>${macro(nl.calories,nt.calories)}</b></div><div class="metric"><small>Proteine</small><b>${macro(nl.protein,nt.protein)} g</b></div><div class="metric"><small>Carbo</small><b>${macro(nl.carbs,nt.carbs)} g</b></div><div class="metric"><small>Grassi</small><b>${macro(nl.fat,nt.fat)} g</b></div></div>
     </section>
@@ -367,15 +365,16 @@ function openSession(id,date=state.selectedDate,rec=null){
   setHeader(s.short||s.title,fmtDate(date,{weekday:'long',day:'numeric',month:'long'}));
   if(s.type==='cardio')return renderCardio(s,date,rec||recommendation(date));
   if(s.type==='recovery')return renderRecovery(date);
-  const adaptive=rec||recommendation(date),reduced=adaptive.setDelta<0;
-  app.innerHTML=`<div class="stack"><section class="card"><div class="row"><div><h2>${esc(s.title)}</h2><p class="muted small" style="margin:0">${esc(s.focus)} · RIR target ${currentReentry(date)?'2–4':'1–3'}</p></div><span class="pill ${reduced?'warn':''}">${reduced?'volume ridotto':'volume normale'}</span></div>
+  const adaptive=rec||recommendation(date),reduced=adaptive.setDelta<0,limit=adaptive.availableMinutes<=25?4:adaptive.availableMinutes<=35?5:s.exercises.length;
+  const chosen=s.exercises.slice(0,limit);
+  app.innerHTML=`<div class="stack"><section class="card"><div class="row"><div><h2>${esc(s.title)}</h2><p class="muted small" style="margin:0">${state.place==='CASA'?'Casa':'Palestra'} · ${adaptive.availableMinutes} min · RIR ${currentReentry(date)?'2–4':'1–3'}</p></div><span class="pill ${reduced?'warn':''}">${esc(adaptive.adjust)}</span></div>
     <div class="segment" style="margin-top:14px"><button class="${state.place==='CASA'?'active':''}" onclick="changeWorkoutPlace('CASA','${id}','${date}')">Casa</button><button class="${state.place==='PALESTRA'?'active':''}" onclick="changeWorkoutPlace('PALESTRA','${id}','${date}')">Palestra</button></div></section>
-    <section class="card" id="exerciseList">${s.exercises.map((e,i)=>renderExercise(e,i,s,date,reduced)).join('')}</section>
-    <section class="card"><label>Note sessione<textarea id="sessionNote" placeholder="Dolori, sensazioni, tecnica, modifiche…"></textarea></label><div class="actions"><button class="btn secondary" onclick="startTimer(120)">Timer 2:00</button><button class="btn" onclick="saveStrength('${id}','${date}')">Salva sessione</button></div></section></div>`;
+    <section class="card" id="exerciseList">${chosen.map((e,i)=>renderExercise(e,i,s,date,adaptive.setDelta)).join('')}</section>
+    <section class="card"><label>Note<textarea id="sessionNote" placeholder="Solo se serve"></textarea></label><div class="actions"><button class="btn secondary" onclick="startTimer(120)">2:00</button><button class="btn" onclick="saveStrength('${id}','${date}')">Fine allenamento</button></div></section></div>`;
 }
 function changeWorkoutPlace(p,id,date){state.place=p;save();openSession(id,date)}
-function renderExercise(e,i,s,date,reduced){
-  const c=choiceFor(e,state.place),p=progression(e),nsets=Math.max(1,e.sets+(reduced?-1:0));
+function renderExercise(e,i,s,date,setDelta=0){
+  const c=choiceFor(e,state.place),p=progression(e),nsets=Math.max(1,e.sets+setDelta);
   return `<div class="exercise" data-ex="${e.id}"><div class="exercise-head"><div><div class="exercise-name">${i+1}. ${esc(c.name)}</div><div class="target">${nsets} × ${e.min}–${e.max}${e.side?' / lato':''} · recupero ${e.rest}s</div><div class="last">Ultima: ${esc(lastSummary(e.id))}</div></div><button class="swap" onclick="swapExercise('${e.id}','${s.id}','${state.place}','${date}')">↔ variante</button></div>
   <div class="progress-note"><strong>Coach:</strong> ${esc(p.text)}</div>
   <div class="set-head"><span>Set</span><span>kg</span><span>reps</span><span>RIR</span><span>✓</span></div>
@@ -422,7 +421,7 @@ function historyLine(h){
 function deleteHistory(id){if(!confirm('Eliminare questa sessione?'))return;state.history=state.history.filter(h=>h.id!==id);save();trendView()}
 
 function trendView(){
-  setTab('trend');setHeader('Trend','Adesione, carico e progressione');
+  setTab('trend');setHeader('Trend','');
   const last28=Array.from({length:28},(_,i)=>dateKey(addDays(TODAY(),-27+i))), hist=state.history.filter(h=>last28.includes((h.date||'').slice(0,10)));
   const strength=hist.filter(h=>h.type==='strength').length,cardio=hist.filter(h=>h.type==='cardio'),z2min=cardio.reduce((a,h)=>a+(+h.minutes||0),0),volume=hist.reduce((a,h)=>a+sessionVolume(h),0);
   const weekly=Array.from({length:4},(_,w)=>{const ds=last28.slice(w*7,w*7+7);return hist.filter(h=>ds.includes((h.date||'').slice(0,10))).length});
@@ -449,10 +448,14 @@ function recoveryPage(){
   <section class="card"><h3>Turni importati</h3>${state.shifts.map(s=>`<div class="history-item"><div class="row"><div><b>${fmtDate(s.date,{weekday:'short',day:'numeric',month:'short'})}</b><div class="muted tiny">${esc(s.title)}</div></div><span class="pill ${s.load>=3?'warn':''}">carico ${s.load}/4</span></div></div>`).join('')}</section></div>`;
 }
 function bodyPage(){
-  const last=state.bodyLogs.at(-1)||{};setHeader('Corpo','Peso e indicatori semplici');
-  app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="backMore()">‹ Altro</button><section class="grid2"><div class="metric"><small>Altezza</small><b>${state.profile.heightCm} cm</b></div><div class="metric"><small>Peso ultimo</small><b>${last.weight||state.profile.weightKg} kg</b></div></section><section class="card"><h3>Aggiungi misura</h3><div class="form-grid"><label>Peso kg<input id="bodyWeight" type="number" step="0.1" value="${last.weight||''}"></label><label>Vita cm<input id="bodyWaist" type="number" step="0.5" value="${last.waist||''}"></label></div><button class="btn" style="margin-top:12px" onclick="saveBody()">Salva</button></section>
-  <section class="card"><h3>Baseline forza</h3><div class="form-grid"><label>Pull-up<input id="bPull" type="number" value="${state.profile.baseline.pullups}"></label><label>Chin-up<input id="bChin" type="number" value="${state.profile.baseline.chinups}"></label><label>Dips<input id="bDip" type="number" value="${state.profile.baseline.dips}"></label><label>Push-up<input id="bPush" type="number" value="${state.profile.baseline.pushups}"></label><label>DB shoulder kg/lato<input id="bShoulder" type="number" step="0.5" value="${state.profile.baseline.shoulderDbKg}"></label><label>Chest kg<input id="bChest" type="number" step="0.5" value="${state.profile.baseline.chestKg}"></label></div><button class="btn secondary" style="margin-top:12px" onclick="saveBaseline()">Aggiorna baseline</button></section></div>`;
+  const last=state.bodyLogs.at(-1)||{},weights=(state.bodyLogs||[]).filter(x=>x.weight).slice(-12).map(x=>+x.weight);setHeader('Corpo','');
+  app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="backMore()">‹ Altro</button><section class="grid2"><div class="metric"><small>Peso</small><b>${last.weight||state.profile.weightKg} kg</b></div><div class="metric"><small>Vita</small><b>${last.waist??'–'}${last.waist?' cm':''}</b></div></section>
+  ${weights.length>1?`<section class="card">${sparkline(weights)}</section>`:''}
+  <section class="card"><h3>Nuova misura</h3><div class="form-grid"><label>Peso kg<input id="bodyWeight" type="number" step="0.1" value="${last.weight||''}"></label><label>Vita cm<input id="bodyWaist" type="number" step="0.5" value="${last.waist||''}"></label></div><button class="btn" style="margin-top:12px" onclick="saveBody()">Salva</button></section>
+  <button class="menu" onclick="toggleBaseline()"><b>Test / baseline forza</b><span>${state.settings.baselineOpen?'Nascondi':'Apri solo quando vuoi aggiornarla'}</span></button>
+  ${state.settings.baselineOpen?`<section class="card"><div class="form-grid"><label>Pull-up<input id="bPull" type="number" value="${state.profile.baseline.pullups}"></label><label>Chin-up<input id="bChin" type="number" value="${state.profile.baseline.chinups}"></label><label>Dips<input id="bDip" type="number" value="${state.profile.baseline.dips}"></label><label>Push-up<input id="bPush" type="number" value="${state.profile.baseline.pushups}"></label><label>DB shoulder kg/lato<input id="bShoulder" type="number" step="0.5" value="${state.profile.baseline.shoulderDbKg}"></label><label>Chest kg<input id="bChest" type="number" step="0.5" value="${state.profile.baseline.chestKg}"></label></div><button class="btn secondary" style="margin-top:12px" onclick="saveBaseline()">Aggiorna</button></section>`:''}</div>`;
 }
+function toggleBaseline(){state.settings.baselineOpen=!state.settings.baselineOpen;save();bodyPage()}
 function saveBody(){const w=numOrNull('bodyWeight'),waist=numOrNull('bodyWaist');if(!w){toast('Inserisci il peso');return}state.bodyLogs.push({date:dateKey(TODAY()),weight:w,waist});state.profile.weightKg=w;save();toast('Misura salvata');bodyPage()}
 function saveBaseline(){state.profile.baseline={pullups:+val('bPull')||0,chinups:+val('bChin')||0,dips:+val('bDip')||0,pushups:+val('bPush')||0,shoulderDbKg:+val('bShoulder')||0,chestKg:+val('bChest')||0};save();toast('Baseline aggiornata')}
 
