@@ -24,11 +24,11 @@ export default async function handler(req,res){
     if(req.method==='POST'){
       const payload=typeof req.body==='string'?JSON.parse(req.body):req.body;
       const envelope={receivedAt:new Date().toISOString(),payload};
-      await put(PATH,JSON.stringify(envelope),{access:'private',addRandomSuffix:false,allowOverwrite:true});
+      await put(PATH,JSON.stringify(envelope),{access:'private',addRandomSuffix:false,allowOverwrite:true,token:process.env.BLOB_READ_WRITE_TOKEN});
       return res.status(200).json({ok:true,receivedAt:envelope.receivedAt});
     }
     if(req.method==='GET'){
-      const result=await get(PATH,{access:'private',useCache:false});
+      const result=await get(PATH,{access:'private',useCache:false,token:process.env.BLOB_READ_WRITE_TOKEN});
       if(!result) return res.status(404).json({ok:false,error:'no_health_data'});
       const body=await new Response(result.stream).json();
       return res.status(200).json(body);
