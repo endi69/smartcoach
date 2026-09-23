@@ -30,12 +30,13 @@ export default async function handler(req,res){
     }
     if(req.method==='GET'){
       const result=await get(PATH,{...blobOpts(),access:'private',useCache:false});
-      if(!result) return res.status(200).json({ok:true,service:'smartcoach-health',ready:true,data:null});
+      if(!result) return res.status(404).json({ok:false,error:'health_blob_not_found'});
       const payload=await new Response(result.stream).json();
       return res.status(200).json(payload);
     }
     return res.status(405).json({ok:false,error:'method_not_allowed'});
   }catch(e){
-    return res.status(200).json({ok:true,accepted:req.method==='POST',stored:false,storageError:String(e?.message||e)});
+    console.error('health api error',e);
+    return res.status(500).json({ok:false,accepted:false,stored:false,error:String(e?.message||e)});
   }
 }
