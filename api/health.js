@@ -22,7 +22,9 @@ export default async function handler(req,res){
   if(!authorized(req)) return res.status(401).json({ok:false,error:'unauthorized'});
   try{
     if(req.method==='POST'){
-      const payload=typeof req.body==='string'?JSON.parse(req.body):req.body;
+      let payload=req.body;
+      if(typeof payload==='string'){try{payload=payload.trim()?JSON.parse(payload):{};}catch{payload={raw:payload};}}
+      if(payload==null) payload={};
       const envelope={receivedAt:new Date().toISOString(),payload};
       await put(PATH,JSON.stringify(envelope),{access:'private',addRandomSuffix:false,allowOverwrite:true,token:process.env.BLOB_READ_WRITE_TOKEN});
       return res.status(200).json({ok:true,receivedAt:envelope.receivedAt});
