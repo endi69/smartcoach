@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='2.4.1';
+const APP_VERSION='2.4.2';
 const STORE_KEY='sc-state';
 const TODAY=()=>new Date();
 const pad=n=>String(n).padStart(2,'0');
@@ -126,7 +126,8 @@ function normalizeHealthPayload(raw){
       temp:healthNum(raw.metrics,['temp']),
       steps:healthNum(raw.metrics,['steps']),
       at:raw.receivedAt||new Date().toISOString(),
-      metricDates:raw.metricDates||{}
+      metricDates:raw.metricDates||{},
+      series:raw.series||{}
     };
   }
   const root=raw?.payload??raw?.data??raw;
@@ -163,7 +164,7 @@ function normalizeHealthPayload(raw){
   const latest=k=>{const a=found[k];if(!a.length)return null;a.sort((a,b)=>b.t-a.t);return Math.round(a[0].value*100)/100};
   return {sleep:latest('sleep'),hrv:latest('hrv'),rhr:latest('rhr'),respiratory:latest('respiratory'),temp:latest('temp'),at:raw?.receivedAt||new Date().toISOString()};
 }
-function applyHealthSnapshot(x){if(!x||[x.sleep,x.hrv,x.rhr,x.respiratory,x.temp,x.steps].every(v=>v==null))return false;const d=(String(x.at).match(/^\d{4}-\d{2}-\d{2}/)||[dateKey(TODAY())])[0];state.health={...(state.health||{}),latest:x,lastSync:new Date().toISOString(),status:'ok'};const old=state.readiness[d]||{};state.readiness[d]={...old,...(x.sleep!=null?{sleepHours:x.sleep}:{}),...(x.hrv!=null?{hrv:x.hrv}:{}),...(x.rhr!=null?{rhr:x.rhr}:{}),...(x.steps!=null?{steps:x.steps}:{})};state.sleepLogs[d]={...(state.sleepLogs[d]||{}),...(x.sleep!=null?{hours:x.sleep}:{}),...(x.hrv!=null?{hrv:x.hrv}:{}),...(x.rhr!=null?{rhr:x.rhr}:{}),...(x.steps!=null?{steps:x.steps}:{})};save();return true}
+function applyHealthSnapshot(x){if(!x||[x.sleep,x.hrv,x.rhr,x.respiratory,x.temp,x.steps].every(v=>v==null))return false;const d=(String(x.at).match(/^\d{4}-\d{2}-\d{2}/)||[dateKey(TODAY())])[0];state.health={...(state.health||{}),latest:x,series:x.series||state.health?.series||{},lastSync:new Date().toISOString(),status:'ok'};const old=state.readiness[d]||{};state.readiness[d]={...old,...(x.sleep!=null?{sleepHours:x.sleep}:{}),...(x.hrv!=null?{hrv:x.hrv}:{}),...(x.rhr!=null?{rhr:x.rhr}:{}),...(x.steps!=null?{steps:x.steps}:{})};state.sleepLogs[d]={...(state.sleepLogs[d]||{}),...(x.sleep!=null?{hours:x.sleep}:{}),...(x.hrv!=null?{hrv:x.hrv}:{}),...(x.rhr!=null?{rhr:x.rhr}:{}),...(x.steps!=null?{steps:x.steps}:{})};save();return true}
 async function fetchHealthDiagnostics(){
   try{
     const sep=HEALTH_SYNC.endpoint.includes('?')?'&':'?';
@@ -278,12 +279,12 @@ function todayView(date=state.selectedDate||dateKey(TODAY())){
 
 function healthTrendPage(kind){
   const meta={sleep:['Sonno','h'],hrv:['HRV','ms'],rhr:['FC a riposo','bpm'],steps:['Passi','']},m=meta[kind]||meta.hrv;
-  const rows=Object.entries(state.sleepLogs||{}).sort((a,b)=>a[0].localeCompare(b[0])).slice(-30).map(([d,x])=>({d,v:kind==='sleep'?(x.hours??x.sleepHours):x[kind]})).filter(x=>x.v!=null);
-  const vals=rows.map(x=>+x.v);
-  setHeader(m[0],'ultimi 30 giorni');
-  app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="todayView()">‹ Oggi</button><section class="card"><h2>${m[0]}</h2>${vals.length>1?sparkline(vals):'<p class="muted small">Servono più dati per il grafico.</p>'}<div class="history-item">${rows.slice(-14).reverse().map(x=>`<div class="row"><span>${fmtDate(x.d,{day:'numeric',month:'short'})}</span><b>${x.v} ${m[1]}</b></div>`).join('')}</div></section>${kind==='rhr'?'<section class="card"><p class="muted small">FC a riposo = valore HealthKit “Resting Heart Rate”, stimato da Apple Watch nei periodi di inattività; non è semplicemente l’ultima frequenza cardiaca misurata. È utile soprattutto come trend rispetto alla tua baseline.</p></section>':''}</div>`;
+  const remote=(state.health?.series?.[kind]||[]).map(x=>({d:x.date,v:x.value,samples:x.samples}));
+  const local=Object.entries(state.sleepLogs||{}).map(([d,x])=>({d,v:kind==='sleep'?(x.hours??x.sleepHours):x[kind]})).filter(x=>x.v!=null);
+  const map=new Map(local.map(x=>[x.d,x]));remote.forEach(x=>map.set(x.d,x));const rows=[...map.values()].sort((a,b)=>a.d.localeCompare(b.d)).slice(-90),vals=rows.map(x=>+x.v);
+  setHeader(m[0],'trend');
+  app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="todayView()">‹ Oggi</button><section class="card"><div class="row"><h2>${m[0]}</h2><span class="pill">${rows.length} gg</span></div>${vals.length>1?sparkline(vals):'<p class="muted small">Servono più dati per il grafico.</p>'}<div class="history-item">${rows.slice(-14).reverse().map(x=>`<div class="row"><span>${fmtDate(x.d,{day:'numeric',month:'short'})}</span><b>${x.v} ${m[1]}</b></div>`).join('')}</div></section>${kind==='hrv'?'<section class="card"><p class="muted small">HRV giornaliera = valore rappresentativo dei campioni disponibili, non l’ultima lettura isolata. Il coach usa il trend rispetto alla tua baseline.</p></section>':''}${kind==='rhr'?'<section class="card"><p class="muted small">FC a riposo = Resting Heart Rate di Apple Health, utile come trend rispetto alla baseline; non è l’ultima frequenza cardiaca istantanea.</p></section>':''}</div>`;
 }
-
 function openCheckin(date=state.selectedDate){
   const r=latestReadiness(date);
   setHeader('Readiness',fmtDate(date,{weekday:'long',day:'numeric',month:'long'}));
