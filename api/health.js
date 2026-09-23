@@ -51,37 +51,34 @@ function extractMetrics(root,receivedAt){
   const valueKeys=new Set(['value','quantity','average','avg','mean','latest','mostrecent','most_recent','total','duration','hours','minutes']);
   const descriptorKeys=/^(name|type|identifier|datatype|data_type|metric|metricname|metric_name|displayname|display_name|quantitytype|quantity_type|category)$/i;
   const unitKeys=/^(unit|units)$/i;
-  function add(kind,value,date,unit){
-    const v=convert(kind,value,unit); if(v==null)return;
-    found[kind].push({value:v,date:date||receivedAt||new Date().toISOString()});
-  }
+  function add(kind,value,date,unit){const v=convert(kind,value,unit);if(v==null)return;found[kind].push({value:v,date:date||receivedAt||new Date().toISOString()});}
   function walk(v,path='',ctx='',inheritedDate=receivedAt){
-    if(v==null)return;
-    if(Array.isArray(v)){v.forEach((x,i)=>walk(x,path+'['+i+']',ctx,inheritedDate));return;}
-    if(typeof v!=='object')return;
-    const entries=Object.entries(v);
-    const desc=entries.filter(([k,x])=>descriptorKeys.test(k)&&typeof x==='string').map(([,x])=>x).join(' ');
-    const localCtx=(ctx+' '+path+' '+desc).trim();
-    const localDate=isoFromObject(v,inheritedDate);
-    const unit=entries.find(([k,x])=>unitKeys.test(k)&&typeof x==='string')?.[1]||'';
-    for(const [k,x] of entries){
-      const n=num(x); if(n==null)continue;
-      const direct=kindFor(k);
-      const inherited=kindFor(localCtx);
-      const nk=clean(k);
-      if(direct)add(direct,n,localDate,unit);
-      else if(inherited&&(valueKeys.has(nk)||nk.endsWith('value')||nk.endsWith('average')||nk.endsWith('duration')))add(inherited,n,localDate,unit);
-    }
+    if(v==null)return;if(Array.isArray(v)){v.forEach((x,i)=>walk(x,path+'['+i+']',ctx,inheritedDate));return;}if(typeof v!=='object')return;
+    const entries=Object.entries(v),desc=entries.filter(([k,x])=>descriptorKeys.test(k)&&typeof x==='string').map(([,x])=>x).join(' '),localCtx=(ctx+' '+path+' '+desc).trim(),localDate=isoFromObject(v,inheritedDate),unit=entries.find(([k,x])=>unitKeys.test(k)&&typeof x==='string')?.[1]||'';
+    for(const [k,x] of entries){const n=num(x);if(n==null)continue;const direct=kindFor(k),inherited=kindFor(localCtx),nk=clean(k);if(direct)add(direct,n,localDate,unit);else if(inherited&&(valueKeys.has(nk)||nk.endsWith('value')||nk.endsWith('average')||nk.endsWith('duration')))add(inherited,n,localDate,unit);}
     for(const [k,x] of entries)if(x&&typeof x==='object')walk(x,path?path+'.'+k:k,localCtx,localDate);
   }
   walk(root);
-  const out={}; const dates={};
-  for(const [kind,arr] of Object.entries(found)){
-    if(!arr.length)continue;
-    arr.sort((a,b)=>timeValue(b.date)-timeValue(a.date));
-    out[kind]=Math.round(arr[0].value*100)/100; dates[kind]=arr[0].date;
+  const out={},dates={},series={};
+  const dayKey=d=>{const t=new Date(d);return Number.isFinite(t.getTime())?t.toISOString().slice(0,10):null};
+  const median=a=>{const x=a.slice().sort((a,b)=>a-b),n=x.length;return n?n%2?x[(n-1)/2]:(x[n/2-1]+x[n/2])/2:null};
+  for(const [kind,arr0] of Object.entries(found)){
+    if(!arr0.length)continue;
+    const arr=arr0.filter(x=>Number.isFinite(x.value)).sort((a,b)=>timeValue(a.date)-timeValue(b.date));
+    const byDay={};for(const x of arr){const d=dayKey(x.date);if(d)(byDay[d]||(byDay[d]=[])).push(x);}
+    series[kind]=Object.entries(byDay).map(([date,xs])=>{
+      const values=xs.map(x=>x.value),last=xs.at(-1);
+      let value;
+      if(kind==='steps') value=values.reduce((a,b)=>a+b,0);
+      else if(kind==='sleep') value=values.length>1?values.reduce((a,b)=>a+b,0):values[0];
+      else if(kind==='hrv') value=median(values);
+      else if(kind==='rhr') value=median(values);
+      else value=median(values);
+      return {date,value:Math.round(value*100)/100,samples:values.length,lastAt:last.date};
+    }).sort((a,b)=>a.date.localeCompare(b.date));
+    const latest=series[kind].at(-1);if(latest){out[kind]=latest.value;dates[kind]=latest.lastAt||latest.date;}
   }
-  return {metrics:out,metricDates:dates};
+  return {metrics:out,metricDates:dates,series};
 }
 async function readJson(path){
   const result=await get(path,{...blobOpts(),access:'private',useCache:false});
@@ -92,13 +89,14 @@ async function writeJson(path,value){
   return put(path,JSON.stringify(value),{...blobOpts(),access:'private',addRandomSuffix:false,allowOverwrite:true,contentType:'application/json'});
 }
 function mergeSummary(previous,incoming,receivedAt){
-  const out=previous&&typeof previous==='object'?previous:{metrics:{},metricDates:{}};
-  out.metrics={...(out.metrics||{})}; out.metricDates={...(out.metricDates||{})};
+  const out=previous&&typeof previous==='object'?previous:{metrics:{},metricDates:{},series:{}};
+  out.metrics={...(out.metrics||{})}; out.metricDates={...(out.metricDates||{})}; out.series={...(out.series||{})};
   for(const [k,v] of Object.entries(incoming.metrics||{})){
     const newDate=incoming.metricDates?.[k]||receivedAt;
     const oldDate=out.metricDates?.[k];
     if(!oldDate||timeValue(newDate)>=timeValue(oldDate)){out.metrics[k]=v;out.metricDates[k]=newDate;}
   }
+  for(const [k,rows] of Object.entries(incoming.series||{})){const map=new Map((out.series[k]||[]).map(x=>[x.date,x]));for(const row of rows)map.set(row.date,row);out.series[k]=[...map.values()].sort((a,b)=>a.date.localeCompare(b.date)).slice(-90);}
   out.lastReceivedAt=receivedAt;
   out.updatedAt=new Date().toISOString();
   return out;
@@ -173,7 +171,7 @@ export default async function handler(req,res){
         });
       }
       if(!summary||!Object.keys(summary.metrics||{}).length)return res.status(404).json({ok:false,error:'health_metrics_not_recognized',batchCount:rebuilt.batchCount});
-      return res.status(200).json({ok:true,service:'smartcoach-health',metrics:summary.metrics||{},metricDates:summary.metricDates||{},receivedAt:summary.lastReceivedAt||summary.updatedAt||null});
+      return res.status(200).json({ok:true,service:'smartcoach-health',metrics:summary.metrics||{},metricDates:summary.metricDates||{},series:summary.series||{},receivedAt:summary.lastReceivedAt||summary.updatedAt||null});
     }
     return res.status(405).json({ok:false,error:'method_not_allowed'});
   }catch(e){
