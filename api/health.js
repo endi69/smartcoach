@@ -32,7 +32,10 @@ export default async function handler(req,res){
       const found=await list({...blobOpts(),prefix:PATH,limit:1});
       const blob=found.blobs?.find(b=>b.pathname===PATH)||found.blobs?.[0];
       if(!blob) return res.status(200).json({ok:true,service:'smartcoach-health',ready:true,data:null});
-      return res.status(200).json({ok:true,service:'smartcoach-health',ready:true,stored:true,receivedAt:blob.uploadedAt||null});
+      const readUrl=blob.downloadUrl||blob.url;
+      const rr=await fetch(readUrl,{headers:{Authorization:'Bearer '+process.env.BLOB_READ_WRITE_TOKEN},cache:'no-store'});
+      if(!rr.ok) return res.status(200).json({ok:true,service:'smartcoach-health',ready:true,stored:true,receivedAt:blob.uploadedAt||null,readError:rr.status});
+      return res.status(200).json(await rr.json());
     }
     return res.status(405).json({ok:false,error:'method_not_allowed'});
   }catch(e){
