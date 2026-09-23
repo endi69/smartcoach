@@ -65,7 +65,7 @@ function extractMetrics(root,receivedAt){
     const unit=entries.find(([k,x])=>unitKeys.test(k)&&typeof x==='string')?.[1]||'';
     for(const [k,x] of entries){
       const n=num(x); if(n==null)continue;
-      const direct=kindFor(path+' '+k);
+      const direct=kindFor(k);
       const inherited=kindFor(localCtx);
       const nk=clean(k);
       if(direct)add(direct,n,localDate,unit);
