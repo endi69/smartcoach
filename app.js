@@ -147,10 +147,10 @@ function normalizeHealthPayload(raw){
     for(const [k,x] of entries){
       const num=typeof x==='number'?x:(typeof x==='string'&&x.trim()!==''&&Number.isFinite(Number(x))?Number(x):null);
       if(num==null)continue;
-      const kind=kindFor(path+' '+k)||kindFor(local);
+      const kind=kindFor(k)||kindFor(local);
       if(!kind)continue;
       const nk=clean(k);
-      if(!kindFor(path+' '+k)&&!(valueKeys.has(nk)||nk.endsWith('value')||nk.endsWith('average')||nk.endsWith('duration')))continue;
+      if(!kindFor(k)&&!(valueKeys.has(nk)||nk.endsWith('value')||nk.endsWith('average')||nk.endsWith('duration')))continue;
       let val=num,u=clean(unit);
       if(kind==='sleep'){if(u.includes('minute')||u==='min')val/=60;else if(u.includes('second')||u==='s'||u==='sec')val/=3600;else if(!u&&val>1000)val/=3600;else if(!u&&val>24)val/=60}
       if(kind==='hrv'&&(u==='s'||u.includes('second'))&&val<10)val*=1000;
