@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='2.4.0';
+const APP_VERSION='2.4.1';
 const STORE_KEY='sc-state';
 const TODAY=()=>new Date();
 const pad=n=>String(n).padStart(2,'0');
@@ -325,7 +325,7 @@ function weekView(){
 function startRecommended(date){const rec=recommendation(date);openSession(rec.session.id,date,rec)}
 function trainingHub(){
   setTab('train');setHeader('Training','');const d=dateKey(TODAY()),rec=recommendation(d);
-  const adaptiveMins=s=>{const av=+(latestReadiness(d).availableMinutes||0);return av?Math.min(s.mins||45,av):Math.round((s.mins||45)*(rec.cardioFactor||1))};
+  const adaptiveMins=s=>{const av=+(latestReadiness(d).availableMinutes||0), raw=typeof s.mins==='number'?s.mins:(s.type==='cardio'?35:50), factor=s.type==='cardio'?(rec.cardioFactor||1):(rec.setDelta<=-2?.55:rec.setDelta<0?.8:1);return Math.max(15,Math.round(Math.min(raw,av||raw)*factor))};
   app.innerHTML=`<div class="stack"><section class="card"><div class="segment"><button class="${state.place==='CASA'?'active':''}" onclick="setPlace('CASA')">Casa</button><button class="${state.place==='PALESTRA'?'active':''}" onclick="setPlace('PALESTRA')">Palestra</button></div></section>
     <button class="day today" onclick="startRecommended('${d}')"><div><div class="dow">OGGI</div><div class="date">${adaptiveMins(rec.session)}</div></div><div><b>${esc(rec.session.title)}</b><div class="muted tiny">${state.place==='CASA'?'Casa':'Palestra'} · ${esc(rec.adjust)}</div></div><span>›</span></button>
     ${Object.values(STRENGTH).map(s=>`<button class="day" onclick="openSession('${s.id}','${d}')"><div><div class="dow">FORZA</div><div class="date">${adaptiveMins(s)}</div></div><div><b>${esc(s.title)}</b><div class="muted tiny">${state.place==='CASA'?'varianti casa':'varianti palestra'} · ${s.exercises.length} esercizi</div></div><span>›</span></button>`).join('')}
