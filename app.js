@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='2.2.2';
+const APP_VERSION='2.2.3';
 const STORE_KEY='sc-state';
 const TODAY=()=>new Date();
 const pad=n=>String(n).padStart(2,'0');
