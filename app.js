@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='2.0.1';
+const APP_VERSION='2.1.0';
 const STORE_KEY='sc-state';
 const TODAY=()=>new Date();
 const pad=n=>String(n).padStart(2,'0');
@@ -112,6 +112,14 @@ let state;
 try{state=migrate(JSON.parse(localStorage.getItem(STORE_KEY)||'null'))}catch{state=defaultState()}
 const save=()=>localStorage.setItem(STORE_KEY,JSON.stringify(state));
 save();
+
+const HEALTH_SYNC={endpoint:localStorage.getItem('sc-health-endpoint')||'',key:localStorage.getItem('sc-health-key')||''};
+function healthHeaders(){const h={'Accept':'application/json'};if(HEALTH_SYNC.key)h['Authorization']='Bearer '+HEALTH_SYNC.key;return h}
+function healthNum(o,keys){for(const k of keys){const v=o?.[k];if(v!=null&&v!==''&&!Number.isNaN(+v))return +v}return null}
+function normalizeHealthPayload(raw){const src=raw?.data||raw?.metrics||raw?.latest||raw||{};return {sleep:healthNum(src,['sleepHours','sleep_hours','sleepDurationHours','sleep_duration_hours','sleep']),hrv:healthNum(src,['hrv','hrvMs','hrv_ms','heartRateVariability','heart_rate_variability']),rhr:healthNum(src,['restingHr','restingHR','resting_hr','restingHeartRate','resting_heart_rate']),respiratory:healthNum(src,['respiratoryRate','respiratory_rate']),temp:healthNum(src,['wristTemperature','wrist_temperature','temperature']),at:src.timestamp||src.date||raw?.timestamp||raw?.date||new Date().toISOString()}}
+function applyHealthSnapshot(x){if(!x||[x.sleep,x.hrv,x.rhr,x.respiratory,x.temp].every(v=>v==null))return false;const d=(String(x.at).match(/^\d{4}-\d{2}-\d{2}/)||[dateKey(TODAY())])[0];state.health={...(state.health||{}),latest:x,lastSync:new Date().toISOString(),status:'ok'};const old=state.readiness[d]||{};state.readiness[d]={...old,...(x.sleep!=null?{sleepHours:x.sleep}:{}),...(x.hrv!=null?{hrv:x.hrv}:{}),...(x.rhr!=null?{rhr:x.rhr}:{})};state.sleepLogs[d]={...(state.sleepLogs[d]||{}),...(x.sleep!=null?{hours:x.sleep}:{}),...(x.hrv!=null?{hrv:x.hrv}:{}),...(x.rhr!=null?{rhr:x.rhr}:{})};save();return true}
+async function syncHealthOnOpen({silent=false}={}){const endpoint=localStorage.getItem('sc-health-endpoint')||HEALTH_SYNC.endpoint;if(!endpoint){state.health={...(state.health||{}),status:'setup'};save();return false}if(!silent)toast('Sincronizzazione Apple Health…');try{const sep=endpoint.includes('?')?'&':'?';const res=await fetch(endpoint+sep+'t='+Date.now(),{method:'GET',headers:healthHeaders(),cache:'no-store'});if(!res.ok)throw new Error('HTTP '+res.status);const x=normalizeHealthPayload(await res.json());if(!applyHealthSnapshot(x))throw new Error('Dati Health non riconosciuti');if(!silent)toast('Apple Health aggiornato ✓');return true}catch(e){state.health={...(state.health||{}),status:'error',error:String(e.message||e),lastAttempt:new Date().toISOString()};save();if(!silent)toast('Health non aggiornato');return false}}
+function healthFreshness(){const at=state.health?.lastSync;if(!at)return 'mai';const mins=Math.max(0,Math.round((Date.now()-new Date(at).getTime())/60000));return mins<1?'adesso':mins<60?`${mins} min fa`:mins<1440?`${Math.round(mins/60)} h fa`:`${Math.round(mins/1440)} g fa`}
 
 const app=document.querySelector('#app');
 const titleEl=document.querySelector('#title');
@@ -407,15 +415,10 @@ function saveSleep(d){
 }
 
 function connectionsPage(){
-  setHeader('Connessioni','Stato dati e fonti');
-  app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="backMore()">‹ Altro</button>
-  <section class="card hero"><div class="row"><div><h2>COROS</h2><p class="muted small" style="margin:0">Snapshot importato ${esc(state.coros.synced||'–')}</p></div><span class="pill good">connesso in ChatGPT</span></div>
-    <div class="grid2" style="margin-top:14px"><div class="metric"><small>VO₂max</small><b>${state.coros.vo2max??'–'}</b></div><div class="metric"><small>Soglia</small><b>${state.coros.thresholdPace??'–'}</b></div><div class="metric"><small>Recovery</small><b>${state.coros.recovery??'–'}%</b></div><div class="metric"><small>Load ratio</small><b>${state.coros.loadRatio??'–'}</b></div><div class="metric"><small>Sonno recente</small><b>${state.coros.sleepHoursLast??'–'}${state.coros.sleepHoursLast!=null?' h':''}</b></div><div class="metric"><small>HRV sonno recente</small><b>${state.coros.sleepHrvLast??'–'}${state.coros.sleepHrvLast!=null?' ms':''}</b><span class="tiny muted">baseline ${state.coros.hrvBaseline??'–'} ms</span></div></div>
-    <div class="notice" style="margin-top:12px">La PWA statica non contiene le credenziali COROS: i dati vengono letti in modo sicuro tramite la connessione COROS di ChatGPT e poi riportati nell'app come snapshot. Non inserire token o password nell'app.</div>
-  </section>
-  <section class="card"><h3>Google Calendar</h3><p class="muted small">Sono stati importati i turni attualmente visibili dal 25 al 30 settembre e usati come carico extra per adattare il training. Puoi aggiungerli o correggerli qui sotto.</p><button class="btn secondary" onclick="recoveryPage()">Gestisci turni</button></section>
-  <section class="card"><h3>Apple Health</h3><p class="muted small">Non collegato direttamente. La web app non legge Apple Health dal browser; eventuali dati possono essere inseriti nel check-in o sincronizzati tramite una fonte autorizzata esterna.</p></section></div>`;
+  setHeader('Connessioni','Stato dati e fonti');const hs=state.health||{},hx=hs.latest||{},configured=!!localStorage.getItem('sc-health-endpoint');
+  app.innerHTML=`<div class="stack"><button class="btn ghost smallbtn" onclick="backMore()">‹ Altro</button><section class="card hero"><div class="row"><div><h2>Apple Watch / Health</h2><p class="muted small" style="margin:0">${configured?'Aggiornato '+healthFreshness():'Ponte da configurare una volta'}</p></div><span class="pill ${configured&&hs.status==='ok'?'good':'warn'}">${configured?(hs.status==='ok'?'attivo':'da verificare'):'setup'}</span></div><div class="grid2" style="margin-top:14px"><div class="metric"><small>Sonno</small><b>${hx.sleep??'–'}${hx.sleep!=null?' h':''}</b></div><div class="metric"><small>HRV</small><b>${hx.hrv??'–'}${hx.hrv!=null?' ms':''}</b></div><div class="metric"><small>FC riposo</small><b>${hx.rhr??'–'}${hx.rhr!=null?' bpm':''}</b></div><div class="metric"><small>Respirazione</small><b>${hx.respiratory??'–'}${hx.respiratory!=null?' /min':''}</b></div></div><p class="muted small">A ogni apertura SmartCoach interroga automaticamente il ponte Health e ricalcola la readiness.</p><label>Endpoint HTTPS del ponte Health<input id="healthEndpoint" type="url" value="${esc(localStorage.getItem('sc-health-endpoint')||'')}" placeholder="https://…"></label><label style="margin-top:10px">Chiave opzionale<input id="healthKey" type="password" value="${esc(localStorage.getItem('sc-health-key')||'')}" placeholder="Bearer token"></label><div class="actions"><button class="btn" onclick="saveHealthBridge()">Salva e prova</button><button class="btn secondary" onclick="syncHealthOnOpen()">Aggiorna ora</button></div></section><section class="card"><div class="row"><div><h3>COROS</h3><p class="muted small" style="margin:0">Training/recovery · snapshot ${esc(state.coros.synced||'–')}</p></div><span class="pill good">connesso</span></div><div class="grid2" style="margin-top:12px"><div class="metric"><small>VO₂max</small><b>${state.coros.vo2max??'–'}</b></div><div class="metric"><small>Recovery</small><b>${state.coros.recovery??'–'}%</b></div><div class="metric"><small>Soglia</small><b>${state.coros.thresholdPace??'–'}</b></div><div class="metric"><small>Load ratio</small><b>${state.coros.loadRatio??'–'}</b></div></div></section><section class="card"><h3>Google Calendar</h3><p class="muted small">I turni importati vengono trattati come carico extra.</p><button class="btn secondary" onclick="recoveryPage()">Gestisci turni</button></section></div>`;
 }
+async function saveHealthBridge(){const ep=(val('healthEndpoint')||'').trim(),key=(val('healthKey')||'').trim();if(!ep||!/^https:\/\//i.test(ep)){toast('Inserisci un endpoint HTTPS');return}localStorage.setItem('sc-health-endpoint',ep);if(key)localStorage.setItem('sc-health-key',key);else localStorage.removeItem('sc-health-key');HEALTH_SYNC.endpoint=ep;HEALTH_SYNC.key=key;await syncHealthOnOpen();connectionsPage()}
 
 function addShift(){
   const d=val('shiftDate'),title=(val('shiftTitle')||'Turno').trim(),load=clamp(+val('shiftLoad')||1,1,4);
@@ -497,3 +500,8 @@ if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.se
 window.addEventListener('storage',e=>{if(e.key===STORE_KEY){try{state=migrate(JSON.parse(e.newValue));todayView(state.selectedDate||dateKey(TODAY()))}catch{}}});
 
 todayView(dateKey(TODAY()));
+syncHealthOnOpen({silent:true}).then(ok=>{if(ok&&document.querySelector('.bottom-nav button.active')?.dataset.tab==='today')todayView(dateKey(TODAY()))});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')syncHealthOnOpen({silent:true}).then(ok=>{if(ok&&document.querySelector('.bottom-nav button.active')?.dataset.tab==='today')todayView(dateKey(TODAY()))})});
+window.addEventListener('focus',()=>syncHealthOnOpen({silent:true}));
+
+window.syncHealthOnOpen=syncHealthOnOpen;window.saveHealthBridge=saveHealthBridge;
