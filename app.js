@@ -124,14 +124,15 @@ function normalizeHealthPayload(raw){
       rhr:healthNum(raw.metrics,['rhr']),
       respiratory:healthNum(raw.metrics,['respiratory']),
       temp:healthNum(raw.metrics,['temp']),
+      steps:healthNum(raw.metrics,['steps']),
       at:raw.receivedAt||new Date().toISOString(),
       metricDates:raw.metricDates||{}
     };
   }
   const root=raw?.payload??raw?.data??raw;
-  const found={sleep:[],hrv:[],rhr:[],respiratory:[],temp:[]};
+  const found={sleep:[],hrv:[],rhr:[],respiratory:[],temp:[],steps:[]};
   const clean=s=>String(s??'').toLowerCase().replace(/[^a-z0-9]+/g,'');
-  const terms={sleep:['sleephours','sleepduration','totalsleep','timeasleep','asleepduration'],hrv:['heartratevariability','hrv'],rhr:['restingheartrate','restinghr'],respiratory:['respiratoryrate'],temp:['wristtemperature','wristtemp']};
+  const terms={sleep:['sleephours','sleepduration','totalsleep','timeasleep','asleepduration'],hrv:['heartratevariability','hrv'],rhr:['restingheartrate','restinghr'],respiratory:['respiratoryrate'],temp:['wristtemperature','wristtemp'],steps:['stepcount','steps']};
   const kindFor=s=>{const x=clean(s);for(const [k,ts] of Object.entries(terms))if(ts.some(t=>x.includes(t)))return k;return null};
   const timeOf=o=>{for(const k of ['date','timestamp','startDate','start_date','endDate','end_date']){const t=Date.parse(o?.[k]);if(Number.isFinite(t))return {text:o[k],value:t}}return {text:raw?.receivedAt||new Date().toISOString(),value:0}};
   const valueKeys=new Set(['value','quantity','average','avg','mean','latest','mostrecent','most_recent','total','duration','hours','minutes']);
@@ -162,7 +163,7 @@ function normalizeHealthPayload(raw){
   const latest=k=>{const a=found[k];if(!a.length)return null;a.sort((a,b)=>b.t-a.t);return Math.round(a[0].value*100)/100};
   return {sleep:latest('sleep'),hrv:latest('hrv'),rhr:latest('rhr'),respiratory:latest('respiratory'),temp:latest('temp'),at:raw?.receivedAt||new Date().toISOString()};
 }
-function applyHealthSnapshot(x){if(!x||[x.sleep,x.hrv,x.rhr,x.respiratory,x.temp].every(v=>v==null))return false;const d=(String(x.at).match(/^\d{4}-\d{2}-\d{2}/)||[dateKey(TODAY())])[0];state.health={...(state.health||{}),latest:x,lastSync:new Date().toISOString(),status:'ok'};const old=state.readiness[d]||{};state.readiness[d]={...old,...(x.sleep!=null?{sleepHours:x.sleep}:{}),...(x.hrv!=null?{hrv:x.hrv}:{}),...(x.rhr!=null?{rhr:x.rhr}:{})};state.sleepLogs[d]={...(state.sleepLogs[d]||{}),...(x.sleep!=null?{hours:x.sleep}:{}),...(x.hrv!=null?{hrv:x.hrv}:{}),...(x.rhr!=null?{rhr:x.rhr}:{})};save();return true}
+function applyHealthSnapshot(x){if(!x||[x.sleep,x.hrv,x.rhr,x.respiratory,x.temp,x.steps].every(v=>v==null))return false;const d=(String(x.at).match(/^\d{4}-\d{2}-\d{2}/)||[dateKey(TODAY())])[0];state.health={...(state.health||{}),latest:x,lastSync:new Date().toISOString(),status:'ok'};const old=state.readiness[d]||{};state.readiness[d]={...old,...(x.sleep!=null?{sleepHours:x.sleep}:{}),...(x.hrv!=null?{hrv:x.hrv}:{}),...(x.rhr!=null?{rhr:x.rhr}:{}),...(x.steps!=null?{steps:x.steps}:{})};state.sleepLogs[d]={...(state.sleepLogs[d]||{}),...(x.sleep!=null?{hours:x.sleep}:{}),...(x.hrv!=null?{hrv:x.hrv}:{}),...(x.rhr!=null?{rhr:x.rhr}:{}),...(x.steps!=null?{steps:x.steps}:{})};save();return true}
 async function fetchHealthDiagnostics(){
   try{
     const sep=HEALTH_SYNC.endpoint.includes('?')?'&':'?';
@@ -255,7 +256,7 @@ function nutritionTargets(){
 }
 function todayView(date=state.selectedDate||dateKey(TODAY())){
   state.selectedDate=date;save();setTab('today');
-  const rec=recommendation(date),r=latestReadiness(date),band=readinessBand(rec.score),done=historyOn(date),nt=nutritionTargets(),nl=state.nutritionLogs[date]||{};
+  const rec=recommendation(date),r=latestReadiness(date),band=readinessBand(rec.score),done=historyOn(date),nt=nutritionTargets(),nl=state.nutritionLogs[date]||{},steps=r.steps??state.health?.latest?.steps;
   setHeader(date===dateKey(TODAY())?'Oggi':fmtDate(date,{weekday:'long',day:'numeric',month:'long'}),'');
   const shiftHtml=rec.shift?`<span class="pill warn">${esc(rec.shift.title)}</span>`:'';
   const macro=(v,target)=>v!=null?`${v}/${target}`:`–/${target}`;
@@ -268,7 +269,7 @@ function todayView(date=state.selectedDate||dateKey(TODAY())){
       <button class="metric metric-btn" onclick="healthTrendPage('sleep')"><small>Sonno</small><b>${r.sleepHours??'–'}${r.sleepHours!=null?' h':''}</b></button>
       <button class="metric metric-btn" onclick="healthTrendPage('hrv')"><small>HRV</small><b>${r.hrv??'–'}${r.hrv!=null?' ms':''}</b></button>
       <button class="metric metric-btn" onclick="healthTrendPage('rhr')"><small>FC riposo</small><b>${r.rhr??'–'}${r.rhr!=null?' bpm':''}</b></button>
-    </section>
+    <div class="metric"><small>Passi</small><b>${steps!=null?Math.round(steps).toLocaleString('it-IT'):'–'}</b></div></section>
     <section class="card"><div class="row"><h3>Oggi · nutrizione</h3><button class="btn ghost smallbtn" onclick="moreView('nutrition')">Apri</button></div>
       <div class="grid2" style="margin-top:10px"><div class="metric"><small>kcal</small><b>${macro(nl.calories,nt.calories)}</b></div><div class="metric"><small>Proteine</small><b>${macro(nl.protein,nt.protein)} g</b></div><div class="metric"><small>Carbo</small><b>${macro(nl.carbs,nt.carbs)} g</b></div><div class="metric"><small>Grassi</small><b>${macro(nl.fat,nt.fat)} g</b></div></div>
     </section>
