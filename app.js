@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='2.7.0';
+const APP_VERSION='3.0.0';
 const STORE_KEY='sc-state';
 const TODAY=()=>new Date();
 const pad=n=>String(n).padStart(2,'0');
@@ -55,14 +55,7 @@ const COROS_DEFAULT={
   dataNote:'Metriche fitness e attività importate da COROS. Le zone FC sono quelle ufficiali del Running Fitness Test e SmartCoach non le ricalcola.'
 };
 
-const SHIFT_DEFAULT=[
-  {date:'2026-09-25',title:'Notte ambu',load:3},
-  {date:'2026-09-26',title:'Reperibile notte',load:3},
-  {date:'2026-09-27',title:'24 ore ambu',load:4},
-  {date:'2026-09-28',title:'Pomeriggio + notte',load:4},
-  {date:'2026-09-29',title:'Pomeriggio',load:2},
-  {date:'2026-09-30',title:'Mattina',load:1}
-];
+const SHIFT_DEFAULT=[];
 
 const ex=(id,label,sets,min,max,opts={})=>({id,label,sets,min,max,...opts});
 const STRENGTH={
