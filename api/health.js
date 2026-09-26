@@ -1,6 +1,6 @@
 import { put, get, list } from '@vercel/blob';
 
-const PARSER_VERSION=3;
+const PARSER_VERSION=4;
 const LEGACY_PATH='smartcoach/health/latest.json';
 const SUMMARY_PATH='smartcoach/health/summary.json';
 const BATCH_PREFIX='smartcoach/health/inbox/';
@@ -57,6 +57,16 @@ function stageOf(v){
   if(x.includes('rem'))return 'rem';
   if(x.includes('core')||x.includes('light'))return 'light';
   if(x.includes('asleep')||x.includes('sleeping'))return 'asleep';
+  return null;
+}
+function healthKitSleepStage(value){
+  const x=n(value);
+  if(x===0)return 'inbed';
+  if(x===1)return 'asleep';
+  if(x===2)return 'awake';
+  if(x===3)return 'light';
+  if(x===4)return 'deep';
+  if(x===5)return 'rem';
   return null;
 }
 function unitConvert(kind,value,unit=''){
@@ -123,9 +133,38 @@ function buildSleepDetails(intervals){
   }
   return out;
 }
-function extractHealth(root,receivedAt){
+function buildAggregateSleepDetails(rows){
+  const byWake={};
+  for(const row of rows){
+    const wake=row.date||dateText(row.end);if(!wake||row.totalHours==null)continue;
+    (byWake[wake]||(byWake[wake]=[])).push(row);
+  }
+  const out={};
+  for(const [wake,items0] of Object.entries(byWake)){
+    const items=items0.filter(x=>x.totalHours>=0.33).sort((a,b)=>b.totalHours-a.totalHours);
+    if(!items.length)continue;
+    const main=items[0],naps=items.slice(1);
+    const periodHours=main.inBedHours!=null?main.inBedHours:(
+      ts(main.start)!=null&&ts(main.end)!=null?Math.max(0,(ts(main.end)-ts(main.start))/3600000):main.totalHours
+    );
+    const napMinutes=Math.round(naps.reduce((s,x)=>s+(x.totalHours||0),0)*60);
+    out[wake]={
+      date:wake,source:'Apple Health',mainSleepMinutes:Math.round(main.totalHours*60),
+      mainSleepPeriodMinutes:Math.round(periodHours*60),mainStart:main.start||null,mainEnd:main.end||null,
+      napMinutes,totalSleepMinutes:Math.round(main.totalHours*60)+napMinutes,
+      deepMinutes:main.deepHours!=null?Math.round(main.deepHours*60):null,
+      lightMinutes:main.lightHours!=null?Math.round(main.lightHours*60):null,
+      remMinutes:main.remHours!=null?Math.round(main.remHours*60):null,
+      awakeMinutes:main.awakeHours!=null?Math.round(main.awakeHours*60):null,
+      samples:items.length
+    };
+  }
+  return out;
+}
+export function extractHealth(root,receivedAt){
   const obs={hrv:[],rhr:[],respiratory:[],temp:[],steps:[],distance:[],sleep:[]};
   const sleepIntervals=[];
+  const sleepAggregates=[];
   const descriptor=/^(name|type|identifier|datatype|data_type|metric|metricname|metric_name|displayname|display_name|quantitytype|quantity_type|category|categorytype)$/i;
   const valueKeys=new Set(['value','qty','quantity','average','avg','mean','latest','mostrecent','most_recent','total','sum','count','duration','hours','minutes']);
   const unitRe=/^(unit|units)$/i;
@@ -146,9 +185,27 @@ function extractHealth(root,receivedAt){
     const source=sourceOf(v);
     const start=firstDate(v,['startDate','start_date','start','from','sleepStart','sleep_start']);
     const end=firstDate(v,['endDate','end_date','end','to','sleepEnd','sleep_end']);
+    if(localKind==='sleep'&&Array.isArray(v.data)){
+      const metricUnit=firstString(v,['units','unit'])||unit;
+      for(const row of v.data){
+        if(!row||typeof row!=='object')continue;
+        const rs=firstDate(row,['sleepStart','sleep_start','startDate','start_date','start']);
+        const re=firstDate(row,['sleepEnd','sleep_end','endDate','end_date','end']);
+        const wake=dateText(row.date)||dateText(re);
+        const totalRaw=n(row.totalSleep)??n(row.asleep);
+        const totalHours=totalRaw==null?null:unitConvert('sleep',totalRaw,metricUnit);
+        if(totalHours==null)continue;
+        const conv=x=>{const z=n(x);return z==null?null:unitConvert('sleep',z,metricUnit)};
+        sleepAggregates.push({
+          date:wake,start:rs,end:re,totalHours,
+          inBedHours:conv(row.inBed),deepHours:conv(row.deep),lightHours:conv(row.core??row.light),
+          remHours:conv(row.rem),awakeHours:conv(row.awake),source:sourceOf(row)||source
+        });
+      }
+    }
     if((localKind==='sleep'||clean(local).includes('sleep'))&&start&&end&&ts(end)>ts(start)){
       const status=[desc,v.value,v.categoryValue,v.category_value,v.sleepStage,v.stage,v.status].filter(x=>typeof x==='string').join(' ');
-      const stage=stageOf(status);
+      const stage=stageOf(status)||healthKitSleepStage(v.value);
       if(stage)sleepIntervals.push({start,end,stage,source});
     }
     for(const [k,x] of entries){
@@ -163,7 +220,9 @@ function extractHealth(root,receivedAt){
   }
   walk(root);
 
-  const sleepDetails=buildSleepDetails(sleepIntervals);
+  const aggregateSleepDetails=buildAggregateSleepDetails(sleepAggregates);
+  const intervalSleepDetails=buildSleepDetails(sleepIntervals);
+  const sleepDetails={...aggregateSleepDetails,...intervalSleepDetails};
   const series={};
   const byDay=(arr)=>{
     const m={};for(const x of arr){const d=dateText(x.date);if(d)(m[d]||(m[d]=[])).push(x)}return m;
