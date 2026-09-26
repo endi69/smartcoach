@@ -1,6 +1,6 @@
 import {
   SNAPSHOT_PATH, readBlobJson, writeBlobJson, loadOAuth, makeProvider, connectClient, call,
-  parseFitness, parseRecovery, parseLoad, parseDailyHealth, parseSleep, parseActivities, parseActivityDetail
+  parseFitness, parseRecovery, parseLoad, parseDailyHealth, parseSleep, parseSleepHrv, parseRestingHeartRate, parseActivities, parseActivityDetail
 } from '../lib/coros-mcp.js';
 
 function headers(res){
@@ -37,16 +37,20 @@ async function syncFromMcp(req){
     const loadTool=chooseTool(names,['queryTrainingLoadAssessment']);
     const dailyTool=chooseTool(names,['queryDailyHealthData']);
     const sleepTool=chooseTool(names,['querySleepOverview','querySleepData']);
+    const sleepHrvTool=chooseTool(names,['querySleepHrv']);
+    const rhrTool=chooseTool(names,['queryRestingHeartRate']);
     const sportTool=chooseTool(names,['querySportRecords']);
     if(!fitnessTool||!recoveryTool||!loadTool||!dailyTool||!sleepTool||!sportTool)throw new Error('COROS MCP tool set incomplete');
 
     const now=new Date(),from=new Date(now.getTime()-120*864e5);
-    const [fitnessText,recoveryText,loadText,dailyText,sleepText,sportText]=await Promise.all([
+    const [fitnessText,recoveryText,loadText,dailyText,sleepText,sleepHrvText,rhrText,sportText]=await Promise.all([
       call(client,fitnessTool,{}),
       call(client,recoveryTool,{}),
       call(client,loadTool,{days:90}),
       call(client,dailyTool,{days:90}),
       call(client,sleepTool,{days:90}),
+      sleepHrvTool?call(client,sleepHrvTool,{startDate:'',endDate:'',days:7}):Promise.resolve(''),
+      rhrTool?call(client,rhrTool,{days:90}):Promise.resolve(''),
       call(client,sportTool,{
         startDate:ymd(from),endDate:ymd(now),sportTypeCodes:[65535],
         minDistanceKm:0,maxDistanceKm:1000,minDurationMinutes:0,maxDurationMinutes:1440,
@@ -56,6 +60,7 @@ async function syncFromMcp(req){
 
     const fitness=parseFitness(fitnessText),recovery=parseRecovery(recoveryText),loadHistory=parseLoad(loadText);
     const daily=parseDailyHealth(dailyText),sleep=parseSleep(sleepText),activities=parseActivities(sportText);
+    const newSleepHrv=parseSleepHrv(sleepHrvText),newRhr=parseRestingHeartRate(rhrText);
 
     const detailTool=chooseTool(names,['getActivityDetail']);
     if(detailTool){
@@ -71,6 +76,10 @@ async function syncFromMcp(req){
 
     const latestLoad=loadHistory.at(-1)||{};
     let previous=null;try{previous=await readBlobJson(SNAPSHOT_PATH)}catch{}
+    const sleepHrvMap=new Map((previous?.sleepHrv||[]).map(x=>[x.date,x]));for(const x of newSleepHrv)sleepHrvMap.set(x.date,x);
+    const rhrMap=new Map((previous?.restingHrHistory||[]).map(x=>[x.date,x]));for(const x of newRhr)rhrMap.set(x.date,x);
+    const sleepHrv=[...sleepHrvMap.values()].sort((a,b)=>a.date.localeCompare(b.date)).slice(-180);
+    const restingHrHistory=[...rhrMap.values()].sort((a,b)=>a.date.localeCompare(b.date)).slice(-180);
     const syncedAt=new Date().toISOString(),fitnessDay=syncedAt.slice(0,10);
     const historyMap=new Map((previous?.fitnessHistory||[]).map(x=>[x.date,x]));
     historyMap.set(fitnessDay,{date:fitnessDay,vo2max:fitness.vo2max,runningLevel:fitness.runningLevel,thresholdPace:fitness.thresholdPace,racePredictions:fitness.racePredictions});
@@ -82,7 +91,7 @@ async function syncFromMcp(req){
       shortLoad:latestLoad.short??null,longLoad:latestLoad.long??null,loadRatio:latestLoad.ratio??null,
       recoveryValue:recovery.value,recoveryText:recovery.text,
       restingHr:daily.baseline.restingHr,hrvBaseline:daily.baseline.hrvBaseline,
-      loadHistory,dailyHealth:daily.rows,sleep,activities,hrZones:HR_ZONES,
+      loadHistory,dailyHealth:daily.rows,sleep,sleepHrv,restingHrHistory,activities,hrZones:HR_ZONES,
       tools:[...names]
     };
     await writeBlobJson(SNAPSHOT_PATH,snapshot);
