@@ -123,6 +123,7 @@ assert.equal(daily.baseline.restingHr,58);
 assert.equal(daily.baseline.hrvBaseline,42);
 assert.equal(daily.rows[0].steps,1647);
 assert.equal(daily.rows[0].sleepPeriodMinutes,387);
+assert.equal(daily.rows[0].sleepAwakeMinutes,8);
 
 const encodedActivities=JSON.stringify(`Sport Records — 2026-09-01 to 2026-09-26 (2 records)
 ========================
