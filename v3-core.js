@@ -58,13 +58,19 @@ function v3CorosSleep(date){return (state.coros.sleep||[]).find(x=>x.date===date
 function v3HealthDay(date){
   const appleSleep=state.health?.sleepDetails?.[date]||null,corosSleep=v3CorosSleep(date),corosDaily=v3CorosDaily(date);
   const sleepSeries=v3SeriesRow('sleep',date),hrv=v3SeriesRow('hrv',date),rhr=v3SeriesRow('rhr',date),steps=v3SeriesRow('steps',date),distance=v3SeriesRow('distance',date);
-  const appleMain=appleSleep?.mainSleepMinutes!=null?v3Hours(appleSleep.mainSleepMinutes):(sleepSeries?.value!=null?+sleepSeries.value:null);
+  const corosHrv=(state.coros.sleepHrv||[]).find(x=>x.date===date)||null,corosRhr=(state.coros.restingHrHistory||[]).find(x=>x.date===date)||null;
+  const appleDetailed=appleSleep?.mainSleepMinutes!=null||/sonno principale/i.test(String(sleepSeries?.source||''));
+  const appleMain=appleSleep?.mainSleepMinutes!=null?v3Hours(appleSleep.mainSleepMinutes):(appleDetailed&&sleepSeries?.value!=null?+sleepSeries.value:null);
   const corosMain=corosSleep?.mainSleepMinutes!=null?v3Hours(corosSleep.mainSleepMinutes):(corosDaily?.sleepPeriodMinutes!=null?v3Hours(Math.max(0,corosDaily.sleepPeriodMinutes-(corosDaily.sleepAwakeMinutes||0))):null);
   const mainSleep=appleMain!=null&&appleMain>=1.5?appleMain:corosMain;
   const nap=appleSleep?.napMinutes!=null?v3Hours(appleSleep.napMinutes):(corosSleep?.napMinutes!=null?v3Hours(corosSleep.napMinutes):null);
+  const appleSleepHrv=/sonno/i.test(String(hrv?.source||''))&&hrv?.value!=null?+hrv.value:null;
+  const hrvValue=appleSleepHrv!=null?appleSleepHrv:(corosHrv?.avg??(hrv?.value!=null?+hrv.value:null));
+  const hrvSource=appleSleepHrv!=null?(hrv?.source||'Apple Health · sonno'):(corosHrv?.avg!=null?'COROS Sleep HRV':(hrv?.source||null));
+  const rhrValue=rhr?.value!=null?+rhr.value:(corosRhr?.value??null),rhrSource=rhr?.value!=null?(rhr?.source||'Apple Health'):(corosRhr?.value!=null?'COROS':null);
   const stepValue=steps?.value!=null&&+steps.value>0?+steps.value:(corosDaily?.steps||null);
-  return {date,mainSleep,nap,sleepSource:appleMain!=null&&appleMain>=1.5?'Apple Health':(corosMain!=null?'COROS':null),sleepDetail:appleSleep||corosSleep||null,
-    hrv:hrv?.value!=null?+hrv.value:null,hrvSource:hrv?.source||null,rhr:rhr?.value!=null?+rhr.value:null,rhrSource:rhr?.source||null,
+  return {date,mainSleep,nap,sleepSource:appleMain!=null&&appleMain>=1.5?'Apple Health':(corosMain!=null?'COROS':null),sleepDetail:(appleMain!=null&&appleMain>=1.5?appleSleep:null)||corosSleep||appleSleep,
+    hrv:hrvValue,hrvSource,rhr:rhrValue,rhrSource,
     steps:stepValue,stepsSource:steps?.value!=null&&+steps.value>0?'Apple Health':(corosDaily?.steps?'COROS':null),
     walkingDistanceKm:distance?.value!=null?+distance.value:null,corosStress:corosDaily?.stressAvg??null};
 }
