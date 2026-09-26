@@ -143,19 +143,32 @@ function buildAggregateSleepDetails(rows){
   for(const [wake,items0] of Object.entries(byWake)){
     const items=items0.filter(x=>x.totalHours>=0.33).sort((a,b)=>b.totalHours-a.totalHours);
     if(!items.length)continue;
-    const main=items[0],naps=items.slice(1);
-    const periodHours=main.inBedHours!=null?main.inBedHours:(
-      ts(main.start)!=null&&ts(main.end)!=null?Math.max(0,(ts(main.end)-ts(main.start))/3600000):main.totalHours
-    );
-    const napMinutes=Math.round(naps.reduce((s,x)=>s+(x.totalHours||0),0)*60);
+    const main=items[0],others=items.slice(1);
+    const spanHours=ts(main.start)!=null&&ts(main.end)!=null?Math.max(0,(ts(main.end)-ts(main.start))/3600000):null;
+    const inBedHours=main.inBedHours!=null&&main.inBedHours>0?main.inBedHours:null;
+    const periodHours=inBedHours??spanHours??main.totalHours;
+    // Aggregated Health Auto Export can combine the overnight sleep and later naps
+    // into one daily row. Treat it as a main sleep only when its time window is
+    // plausible for a single overnight session; otherwise keep it as a daily total
+    // and let a true interval-level record or COROS provide the main sleep.
+    const plausibleMain=periodHours>=2&&periodHours<=10.5&&main.totalHours<=periodHours+0.5;
+    const otherMinutes=Math.round(others.reduce((s,x)=>s+(x.totalHours||0),0)*60);
+    const dailyMinutes=Math.round(main.totalHours*60)+otherMinutes;
     out[wake]={
-      date:wake,source:'Apple Health',mainSleepMinutes:Math.round(main.totalHours*60),
-      mainSleepPeriodMinutes:Math.round(periodHours*60),mainStart:main.start||null,mainEnd:main.end||null,
-      napMinutes,totalSleepMinutes:Math.round(main.totalHours*60)+napMinutes,
+      date:wake,
+      source:plausibleMain?'Apple Health':'Apple Health · totale giornaliero',
+      mainSleepMinutes:plausibleMain?Math.round(main.totalHours*60):null,
+      mainSleepPeriodMinutes:plausibleMain?Math.round(periodHours*60):null,
+      mainStart:plausibleMain?(main.start||null):null,
+      mainEnd:plausibleMain?(main.end||null):null,
+      napMinutes:plausibleMain?otherMinutes:null,
+      dailySleepMinutes:dailyMinutes,
+      totalSleepMinutes:dailyMinutes,
       deepMinutes:main.deepHours!=null?Math.round(main.deepHours*60):null,
       lightMinutes:main.lightHours!=null?Math.round(main.lightHours*60):null,
       remMinutes:main.remHours!=null?Math.round(main.remHours*60):null,
       awakeMinutes:main.awakeHours!=null?Math.round(main.awakeHours*60):null,
+      consolidated:!plausibleMain,
       samples:items.length
     };
   }
@@ -253,6 +266,7 @@ export function extractHealth(root,receivedAt){
   // the wake-up date. Fall back to the daily median when no sleep window is present.
   const hrvUsed=new Set(),hrvRows=[];
   for(const [date,s] of Object.entries(sleepDetails)){
+    if(s.mainSleepMinutes==null||!s.mainStart||!s.mainEnd)continue;
     const a=ts(s.mainStart),b=ts(s.mainEnd);
     const rows=obs.hrv.filter((x,i)=>{const t=ts(x.date);if(t!=null&&t>=a&&t<=b){hrvUsed.add(i);return true}return false});
     if(rows.length)hrvRows.push({date,value:round2(median(rows.map(x=>x.value))),samples:rows.length,source:'Apple Health · sonno'});
@@ -261,7 +275,10 @@ export function extractHealth(root,receivedAt){
   for(const [date,rows] of Object.entries(hrvFallback))if(!hrvRows.some(x=>x.date===date))hrvRows.push({date,value:round2(median(rows.map(x=>x.value))),samples:rows.length,source:'Apple Health'});
   series.hrv=hrvRows.sort((a,b)=>a.date.localeCompare(b.date));
 
-  series.sleep=Object.values(sleepDetails).map(s=>({date:s.date,value:round2(s.mainSleepMinutes/60),samples:s.samples,source:'Apple Health · sonno principale'})).sort((a,b)=>a.date.localeCompare(b.date));
+  series.sleep=Object.values(sleepDetails)
+    .filter(s=>s.mainSleepMinutes!=null&&s.mainSleepMinutes>0)
+    .map(s=>({date:s.date,value:round2(s.mainSleepMinutes/60),samples:s.samples,source:'Apple Health · sonno principale'}))
+    .sort((a,b)=>a.date.localeCompare(b.date));
   if(!series.sleep.length&&obs.sleep.length){
     series.sleep=Object.entries(byDay(obs.sleep)).map(([date,rows])=>({date,value:round2(median(rows.map(x=>x.value))),samples:rows.length,source:'Apple Health'})).sort((a,b)=>a.date.localeCompare(b.date));
   }
