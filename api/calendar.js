@@ -27,6 +27,23 @@ function classifyShift(summary,start,end){
   const date=String(start||'').slice(0,10);
   return {date,title:label,load,source:'Google Calendar',start,end};
 }
+function resolveCalendarFeed(raw){
+  const s=String(raw||'').trim();
+  if(!s)return null;
+  if(/^https:\/\//i.test(s)&&/\.ics(?:$|[?#])/i.test(s))return s;
+  const iframe=s.match(/<iframe[^>]+src=["']([^"']+)["']/i);
+  const candidate=iframe?.[1]||(/^https:\/\//i.test(s)?s:null);
+  if(candidate){
+    try{
+      const u=new URL(candidate);
+      const src=u.searchParams.get('src');
+      if(src){
+        return 'https://calendar.google.com/calendar/ical/'+encodeURIComponent(src)+'/public/basic.ics';
+      }
+    }catch{}
+  }
+  return s;
+}
 function parseIcs(ics){
   const text=unfoldIcs(ics),chunks=text.split('BEGIN:VEVENT').slice(1),events=[];
   for(const ch of chunks){
@@ -50,8 +67,9 @@ export default async function handler(req,res){
   headers(res);if(req.method==='OPTIONS')return res.status(204).end();
   if(req.method!=='GET')return res.status(405).json({ok:false,error:'method_not_allowed'});
   try{
-    const url=process.env.GOOGLE_CALENDAR_ICS_URL;
-    if(!url)return res.status(503).json({ok:false,error:'calendar_not_configured',setup:'Set GOOGLE_CALENDAR_ICS_URL in Vercel to the private Google Calendar iCal URL.'});
+    const raw=process.env.GOOGLE_CALENDAR_ICS_URL;
+    const url=resolveCalendarFeed(raw);
+    if(!url)return res.status(503).json({ok:false,error:'calendar_not_configured',setup:'Set GOOGLE_CALENDAR_ICS_URL in Vercel.'});
     const r=await fetch(url,{cache:'no-store'});if(!r.ok)throw new Error('Calendar feed HTTP '+r.status);
     const all=parseIcs(await r.text()),now=Date.now(),from=now-21*864e5,to=now+90*864e5;
     const events=all.filter(e=>{const t=Date.parse(e.start);return Number.isFinite(t)&&t>=from&&t<=to});
