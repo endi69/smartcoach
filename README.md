@@ -58,3 +58,5 @@ Il repository non contiene token COROS, URL iCal privati o password. I dati loca
 <!-- Redeploy trigger: refresh production environment variables for Google Calendar -->
 
 <!-- Redeploy trigger: Google Calendar env linked to smartcoach -->
+
+<!-- Redeploy trigger: verify updated Google Calendar ICS secret -->
