@@ -1,6 +1,6 @@
 import { put, get, list } from '@vercel/blob';
 
-const PARSER_VERSION=4;
+const PARSER_VERSION=5;
 const LEGACY_PATH='smartcoach/health/latest.json';
 const SUMMARY_PATH='smartcoach/health/summary.json';
 const BATCH_PREFIX='smartcoach/health/inbox/';
@@ -301,11 +301,20 @@ function mergeSummary(prev,inc,receivedAt){
   out.metrics={...(out.metrics||{})};out.metricDates={...(out.metricDates||{})};out.series={...(out.series||{})};out.sleepDetails={...(out.sleepDetails||{})};
   for(const [kind,rows] of Object.entries(inc.series||{})){
     const m=new Map((out.series[kind]||[]).map(x=>[x.date,x]));
-    for(const row of rows)m.set(row.date,row);
+    for(const row of rows){
+      const prevRow=m.get(row.date);
+      if(kind==='hrv'&&prevRow&&/sonno/i.test(String(prevRow.source||''))&&!/sonno/i.test(String(row.source||'')))continue;
+      m.set(row.date,row);
+    }
     out.series[kind]=[...m.values()].sort((a,b)=>a.date.localeCompare(b.date)).slice(-180);
     const last=out.series[kind].at(-1);if(last){out.metrics[kind]=last.value;out.metricDates[kind]=last.date}
   }
-  for(const [d,s] of Object.entries(inc.sleepDetails||{}))out.sleepDetails[d]=s;
+  for(const [d,s] of Object.entries(inc.sleepDetails||{})){
+    const prevSleep=out.sleepDetails[d];
+    const prevSpecific=prevSleep?.mainSleepMinutes!=null&&!prevSleep?.consolidated;
+    const nextSpecific=s?.mainSleepMinutes!=null&&!s?.consolidated;
+    if(!prevSleep||nextSpecific||!prevSpecific)out.sleepDetails[d]=s;
+  }
   const sleepKeys=Object.keys(out.sleepDetails).sort();if(sleepKeys.length>180)for(const d of sleepKeys.slice(0,-180))delete out.sleepDetails[d];
   out.lastReceivedAt=receivedAt;out.updatedAt=new Date().toISOString();out.parserVersion=PARSER_VERSION;
   return out;
