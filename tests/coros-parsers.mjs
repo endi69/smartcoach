@@ -113,7 +113,7 @@ const encodedDaily=JSON.stringify(`Daily Health Data — Last 7 days | Resting H
 Note: sleep entries are dated by their wake-up day.
 
 --- 20260926 ---
-Steps: 1,647 | Calories: 82 kcal | Exercise: 0 min
+Steps: 1,647 | Calories: 82 kcal | Exercise: 46 min
 Stress: Avg 26
 Sleep Summary:
   Total: 6h 27min | Deep: 1h 24min | Light: 3h 16min | REM: 1h 39min | Awake: 8 min
@@ -122,7 +122,9 @@ const daily=parseDailyHealth(decodeToolText(encodedDaily));
 assert.equal(daily.baseline.restingHr,58);
 assert.equal(daily.baseline.hrvBaseline,42);
 assert.equal(daily.rows[0].steps,1647);
+assert.equal(daily.rows[0].exerciseMinutes,46);
 assert.equal(daily.rows[0].sleepPeriodMinutes,387);
+assert.equal(daily.rows[0].sleepAwakeMinutes,8);
 
 const encodedActivities=JSON.stringify(`Sport Records — 2026-09-01 to 2026-09-26 (2 records)
 ========================
