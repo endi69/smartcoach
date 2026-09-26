@@ -70,8 +70,13 @@ async function syncFromMcp(req){
     }
 
     const latestLoad=loadHistory.at(-1)||{};
+    let previous=null;try{previous=await readBlobJson(SNAPSHOT_PATH)}catch{}
+    const syncedAt=new Date().toISOString(),fitnessDay=syncedAt.slice(0,10);
+    const historyMap=new Map((previous?.fitnessHistory||[]).map(x=>[x.date,x]));
+    historyMap.set(fitnessDay,{date:fitnessDay,vo2max:fitness.vo2max,runningLevel:fitness.runningLevel,thresholdPace:fitness.thresholdPace,racePredictions:fitness.racePredictions});
+    const fitnessHistory=[...historyMap.values()].sort((a,b)=>a.date.localeCompare(b.date)).slice(-365);
     const snapshot={
-      source:'COROS',syncedAt:new Date().toISOString(),fitness,
+      source:'COROS',syncedAt,fitness,fitnessHistory,
       vo2max:fitness.vo2max,runningLevel:fitness.runningLevel,thresholdPace:fitness.thresholdPace,
       racePredictions:fitness.racePredictions,recovery,
       shortLoad:latestLoad.short??null,longLoad:latestLoad.long??null,loadRatio:latestLoad.ratio??null,
