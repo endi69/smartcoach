@@ -139,3 +139,9 @@ recommendation=function(date){
   const av=+(r.availableMinutes||50);if(session.type!=='recovery'&&av<=35){adjust=av+' min';reason='Adattato al tempo disponibile';setDelta=Math.min(setDelta,av<=25?-2:-1);cardioFactor=Math.min(cardioFactor,av<=25?.6:.8)}
   return {base:p?.session||session,session,score:ready.score,shift:ready.shift,adjust,reason,setDelta,cardioFactor,availableMinutes:av};
 };
+
+currentReentry=function(date=v3Today()){
+  const start=dateKey(addDays(parseDate(date),-21));
+  return unifiedActivities().filter(a=>a.kind==='strength'&&a.date>=start&&a.date<=date).length<4;
+};
+state.settings.reentry=currentReentry(state.selectedDate||v3Today());save();
