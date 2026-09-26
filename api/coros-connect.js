@@ -3,7 +3,9 @@ import { makeProvider, connectClient } from '../lib/coros-mcp.js';
 export default async function handler(req,res){
   if(req.method!=='GET')return res.status(405).send('Method not allowed');
   try{
-    const provider=await makeProvider(req);
+    // Every explicit "Connetti COROS" starts a completely fresh OAuth/PKCE flow.
+    // Keep only the regional MCP endpoint COROS previously selected for this account.
+    const provider=await makeProvider(req,{fresh:true});
     try{
       const {client}=await connectClient(provider);
       try{await client.close()}catch{}
