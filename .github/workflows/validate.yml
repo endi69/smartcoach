@@ -1,0 +1,29 @@
+name: Validate SmartCoach v3
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - name: Syntax check
+        run: |
+          node --check app.js
+          node --check v3-core.js
+          node --check v3-ui.js
+          node --check v3-sync.js
+          node --check api/health.js
+          node --check api/calendar.js
+          node --check api/coros.js
+          node --check api/coros-connect.js
+          node --check api/coros-callback.js
+          node --check lib/coros-mcp.js
+      - name: Import COROS MCP bridge
+        run: node -e "import('./lib/coros-mcp.js').then(()=>console.log('MCP import OK'))"
