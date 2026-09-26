@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { parseFitness, parseSleep, parseSleepHrv, parseRestingHeartRate, parseActivities, parseLoad } from '../lib/coros-mcp.js';
+import { parseFitness, parseSleep, parseSleepHrv, parseRestingHeartRate, parseActivities, parseLoad, protectedResourceFromError, trustedCorosMcpUrl } from '../lib/coros-mcp.js';
 
 const fitness=parseFitness(`Fitness Assessment Overview
 VO2max: 50
@@ -78,3 +78,10 @@ assert.equal(load.length,2);
 assert.equal(load.at(-1).ratio,0.36);
 
 console.log('SmartCoach parser smoke tests OK');
+
+
+const regional=protectedResourceFromError(new Error('Protected resource https://mcpus.coros.com/mcp does not match expected https://mcp.coros.com/mcp (or origin)'));
+assert.equal(String(regional),'https://mcpus.coros.com/mcp');
+assert.equal(String(trustedCorosMcpUrl('https://mcp-eu.coros.com/mcp')),'https://mcp-eu.coros.com/mcp');
+assert.equal(trustedCorosMcpUrl('https://evil.example/mcp'),null);
+assert.equal(trustedCorosMcpUrl('http://mcpus.coros.com/mcp'),null);
