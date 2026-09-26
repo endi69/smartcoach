@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='2.6.0';
+const APP_VERSION='2.7.0';
 const STORE_KEY='sc-state';
 const TODAY=()=>new Date();
 const pad=n=>String(n).padStart(2,'0');
@@ -138,6 +138,44 @@ let state;
 try{state=migrate(JSON.parse(localStorage.getItem(STORE_KEY)||'null'))}catch{state=defaultState()}
 const save=()=>localStorage.setItem(STORE_KEY,JSON.stringify(state));
 save();
+
+const COROS_SYNC={endpoint:new URL('/api/coros',location.origin).href};
+function normalizeCorosRemote(raw){
+  if(!raw||raw.ok===false)return null;
+  const fit=raw.fitness||{};
+  return {
+    synced:(raw.syncedAt||raw.synced||'').slice(0,10)||state.coros.synced,
+    vo2max:fit.vo2max??raw.vo2max??state.coros.vo2max,
+    runningLevel:fit.runningLevel??raw.runningLevel??state.coros.runningLevel,
+    thresholdPace:fit.thresholdPace??raw.thresholdPace??state.coros.thresholdPace,
+    racePredictions:{...(state.coros.racePredictions||{}),...(raw.racePredictions||fit.racePredictions||{})},
+    shortLoad:raw.shortLoad??raw.load?.short??state.coros.shortLoad,
+    longLoad:raw.longLoad??raw.load?.long??state.coros.longLoad,
+    loadRatio:raw.loadRatio??raw.load?.ratio??state.coros.loadRatio,
+    recovery:raw.recovery?.value??raw.recovery??state.coros.recovery,
+    recoveryText:raw.recovery?.text??raw.recoveryText??state.coros.recoveryText,
+    hrZones:raw.hrZones||state.coros.hrZones,
+    activities:Array.isArray(raw.activities)?raw.activities:state.coros.activities,
+    loadHistory:Array.isArray(raw.loadHistory)?raw.loadHistory:state.coros.loadHistory,
+    recentActivities:Array.isArray(raw.activities)?raw.activities.length:state.coros.recentActivities,
+    remoteSyncedAt:raw.syncedAt||null,source:'COROS'
+  };
+}
+async function syncCorosOnOpen({silent=true}={}){
+  try{
+    const r=await fetch(COROS_SYNC.endpoint+'?t='+Date.now(),{cache:'no-store',headers:{Accept:'application/json'}});
+    if(r.status===404)return false;
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const x=normalizeCorosRemote(await r.json()); if(!x)return false;
+    state.coros={...state.coros,...x}; save();
+    if(!silent)toast('COROS aggiornato ✓');
+    return true;
+  }catch(e){
+    state.coros={...state.coros,remoteError:String(e.message||e)};save();
+    if(!silent)toast('COROS non aggiornato');
+    return false;
+  }
+}
 
 const HEALTH_SYNC={endpoint:new URL('/api/health',location.origin).href,key:''};
 function healthHeaders(){const h={'Accept':'application/json'};if(HEALTH_SYNC.key)h['Authorization']='Bearer '+HEALTH_SYNC.key;return h}
@@ -667,8 +705,9 @@ if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.se
 window.addEventListener('storage',e=>{if(e.key===STORE_KEY){try{state=migrate(JSON.parse(e.newValue));todayView(state.selectedDate||dateKey(TODAY()))}catch{}}});
 
 todayView(dateKey(TODAY()));
+syncCorosOnOpen({silent:true}).then(ok=>{if(ok&&document.querySelector('.bottom-nav button.active')?.dataset.tab==='today')todayView(dateKey(TODAY()))});
 syncHealthOnOpen({silent:true}).then(ok=>{if(ok&&document.querySelector('.bottom-nav button.active')?.dataset.tab==='today')todayView(dateKey(TODAY()))});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')syncHealthOnOpen({silent:true}).then(ok=>{if(ok&&document.querySelector('.bottom-nav button.active')?.dataset.tab==='today')todayView(dateKey(TODAY()))})});
-window.addEventListener('focus',()=>syncHealthOnOpen({silent:true}));
+window.addEventListener('focus',()=>{syncHealthOnOpen({silent:true});syncCorosOnOpen({silent:true})});
 
-window.syncHealthOnOpen=syncHealthOnOpen;window.saveHealthBridge=saveHealthBridge;
+window.syncHealthOnOpen=syncHealthOnOpen;window.syncCorosOnOpen=syncCorosOnOpen;window.saveHealthBridge=saveHealthBridge;
