@@ -28,3 +28,35 @@ label{display:block;color:var(--muted);font-size:11px;font-weight:800;letter-spa
 #toast{position:fixed;z-index:60;left:50%;bottom:92px;transform:translate(-50%,20px);background:#edf6ff;color:#0a1321;border-radius:999px;padding:10px 14px;font-size:12px;font-weight:800;opacity:0;pointer-events:none;transition:.2s;white-space:nowrap;max-width:90vw;overflow:hidden;text-overflow:ellipsis}#toast.show{opacity:1;transform:translate(-50%,0)}
 .divider{height:1px;background:var(--line);margin:13px 0}.right{text-align:right}.center{text-align:center}.hidden{display:none!important}
 @media(max-width:390px){#shell{padding-left:12px;padding-right:12px}.grid3{grid-template-columns:1fr 1fr}.form-grid.three{grid-template-columns:1fr 1fr}.topbar h1{font-size:31px}.card{padding:14px}.set-head,.set-row{grid-template-columns:26px 1fr 1fr 1fr 28px}}
+
+
+/* SmartCoach v3 */
+.v3stack{gap:10px}
+.v3stack .card{border-radius:18px;padding:14px}
+.v3hero{background:linear-gradient(145deg,#15233a,#0e1828 72%)}
+.metric-btn{appearance:none;color:var(--text);text-align:left;width:100%;cursor:pointer}
+.v3metric{min-height:94px}
+.v3metric b{font-size:21px;line-height:1.15}
+.v3metric em{display:block;margin-top:6px;color:var(--muted);font-size:9px;font-style:normal;font-weight:750;letter-spacing:.02em}
+.reason-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 0;border-top:1px solid var(--line)}
+.reason-row:first-child{border-top:0}
+.reason-row>div{min-width:0}
+.reason-row b{display:block;font-size:13px}
+.reason-row small{display:block;color:var(--muted);font-size:10px;margin-top:3px;white-space:normal}
+.reason-row>span{font-size:18px;font-weight:900;color:var(--accent);font-variant-numeric:tabular-nums}
+.zones-compact{margin-top:12px;border-top:1px solid var(--line)}
+.zone-row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #22334d;font-size:11px}
+.zone-row span{color:var(--muted)}
+.zone-row b{font-variant-numeric:tabular-nums}
+.v3health .metric{background:#0d1828}
+.v3stack .history-item{padding:11px 0}
+.v3stack .menu{min-height:86px}
+.v3stack .menu b{font-size:15px}
+.v3stack .day{border-radius:16px;padding:12px}
+.topbar h1{font-size:32px}
+.topbar{padding-bottom:10px}
+@media(max-width:390px){
+  .v3metric{min-height:86px}
+  .v3metric b{font-size:19px}
+  .v3stack .card{padding:13px}
+}
