@@ -698,9 +698,5 @@ if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.se
 window.addEventListener('storage',e=>{if(e.key===STORE_KEY){try{state=migrate(JSON.parse(e.newValue));todayView(state.selectedDate||dateKey(TODAY()))}catch{}}});
 
 todayView(dateKey(TODAY()));
-syncCorosOnOpen({silent:true}).then(ok=>{if(ok&&document.querySelector('.bottom-nav button.active')?.dataset.tab==='today')todayView(dateKey(TODAY()))});
-syncHealthOnOpen({silent:true}).then(ok=>{if(ok&&document.querySelector('.bottom-nav button.active')?.dataset.tab==='today')todayView(dateKey(TODAY()))});
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')syncHealthOnOpen({silent:true}).then(ok=>{if(ok&&document.querySelector('.bottom-nav button.active')?.dataset.tab==='today')todayView(dateKey(TODAY()))})});
-window.addEventListener('focus',()=>{syncHealthOnOpen({silent:true});syncCorosOnOpen({silent:true})});
 
 window.syncHealthOnOpen=syncHealthOnOpen;window.syncCorosOnOpen=syncCorosOnOpen;window.saveHealthBridge=saveHealthBridge;
