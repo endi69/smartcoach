@@ -12,7 +12,7 @@ export default async function handler(req,res){
 
     const endpoint=mcpUrlFor(provider);
     const transport=new StreamableHTTPClientTransport(endpoint,{authProvider:provider});
-    await transport.finishAuth(params);
+    await transport.finishAuth(params.get('code'));
 
     provider.store.state=null;
     await saveOAuth(provider.store);

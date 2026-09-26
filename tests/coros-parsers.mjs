@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { parseFitness, parseSleep, parseSleepHrv, parseRestingHeartRate, parseActivities, parseLoad, protectedResourceFromError, trustedCorosMcpUrl } from '../lib/coros-mcp.js';
 
@@ -85,3 +86,8 @@ assert.equal(String(regional),'https://mcpus.coros.com/mcp');
 assert.equal(String(trustedCorosMcpUrl('https://mcp-eu.coros.com/mcp')),'https://mcp-eu.coros.com/mcp');
 assert.equal(trustedCorosMcpUrl('https://evil.example/mcp'),null);
 assert.equal(trustedCorosMcpUrl('http://mcpus.coros.com/mcp'),null);
+
+
+const callbackSource=fs.readFileSync(new URL('../api/coros-callback.js',import.meta.url),'utf8');
+assert.match(callbackSource,/finishAuth\(params\.get\(['"]code['"]\)\)/);
+assert.doesNotMatch(callbackSource,/finishAuth\(params\)/);
