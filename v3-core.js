@@ -110,23 +110,40 @@ function v3RecentStrengthFocus(){
     if(x.includes('lowera')||x.includes('lower a'))counts.lowerA++;else if(x.includes('upper'))counts.upper++;else if(x.includes('lowerb')||x.includes('posterior'))counts.lowerB++}
   return Object.entries(counts).sort((a,b)=>a[1]-b[1])[0][0];
 }
+function v3TimeMinutes(s){
+  if(!s)return null;const p=String(s).trim().split(':').map(Number);
+  if(p.some(x=>!Number.isFinite(x)))return null;
+  return p.length===3?p[0]*60+p[1]+p[2]/60:p.length===2?p[0]+p[1]/60:null;
+}
 function v3PlanWeek(anchor=state.selectedDate||v3Today()){
   const ws=v3WeekStart(parseDate(anchor)),today=v3Today(),days=Array.from({length:7},(_,i)=>dateKey(addDays(ws,i))),actual=new Map(days.map(d=>[d,historyOn(d)]));
+  const goals=state.settings?.goals||{},muscle=goals.muscle||'hypertrophy',priority=goals.priority||'legs-posterior-chain';
+  const strengthTarget=muscle==='maintenance'?2:3,cardioTarget=2;
+  const predicted5=v3TimeMinutes(state.coros.racePredictions?.k5||state.coros.fitness?.racePredictions?.k5),target5=v3Num(goals.run5kMin);
+  const qualityWanted=!currentReentry(today)&&target5!=null&&predicted5!=null&&target5<predicted5-.25;
+  const strengthOrder=priority==='upper'?['upper','lowerA','upper']:priority==='balanced'?['lowerA','upper','lowerB']:['lowerA','upper','lowerB'];
   let strengthDone=days.filter(d=>(actual.get(d)||[]).some(a=>a.kind==='strength')).length;
-  let z2Done=days.filter(d=>(actual.get(d)||[]).some(a=>['run','bike','cardio'].includes(a.kind)&&/z2|easy|facile|base/i.test(String((a.name||'')+' '+(a.focus||''))))).length;
-  const plan={},focusOrder=['lowerA','upper','lowerB'];let focusIdx=Math.max(0,focusOrder.indexOf(v3RecentStrengthFocus())),lastStrengthDate=null;
+  let aerobicDone=days.filter(d=>(actual.get(d)||[]).some(a=>['run','bike','cardio'].includes(a.kind)&&/z2|easy|facile|base/i.test(String((a.name||'')+' '+(a.focus||''))))).length;
+  let qualityDone=days.filter(d=>(actual.get(d)||[]).some(a=>a.kind==='run'&&/threshold|tempo|interval|quality|qualit|soglia/i.test(String((a.name||'')+' '+(a.focus||''))))).length;
+  const plan={};let focusIdx=Math.max(0,strengthOrder.indexOf(v3RecentStrengthFocus())),lastStrengthDate=null;
   for(const d of days){
     const acts=actual.get(d)||[],sh=v3Shift(d);if(acts.some(a=>a.kind==='strength'))lastStrengthDate=d;
     if(d<today||acts.length){plan[d]={actual:acts,session:null,shift:sh};continue}
     const previous=days[days.indexOf(d)-1],prevHadStrength=(previous&&(actual.get(previous)||[]).some(a=>a.kind==='strength'))||lastStrengthDate===previous;
-    let sid='recovery',needStrength=Math.max(0,3-strengthDone),needZ2=Math.max(0,2-z2Done);
+    let sid='recovery',needStrength=Math.max(0,strengthTarget-strengthDone),needAerobic=Math.max(0,cardioTarget-aerobicDone-qualityDone);
     if(sh?.load>=4)sid='recovery';
-    else if(sh?.load===3){if(needZ2>0){sid='z2short';z2Done++}}
-    else if(needStrength>0&&!prevHadStrength){sid=focusOrder[focusIdx%focusOrder.length];focusIdx++;strengthDone++;lastStrengthDate=d}
-    else if(needZ2>0){sid=needZ2>1?'z2short':'z2long';z2Done++}
+    else if(sh?.load===3){
+      if(needAerobic>0){sid='z2short';aerobicDone++}
+    }else if(needStrength>0&&!prevHadStrength){
+      sid=strengthOrder[focusIdx%strengthOrder.length];focusIdx++;strengthDone++;lastStrengthDate=d;
+    }else if(qualityWanted&&!qualityDone&&needAerobic>0&&(!sh||sh.load<=1)){
+      sid='runQuality';qualityDone++;
+    }else if(needAerobic>0){
+      sid=needAerobic>1?'z2short':'z2long';aerobicDone++;
+    }
     plan[d]={actual:acts,session:sessionById(sid),shift:sh};
   }
-  return {days,plan};
+  return {days,plan,targets:{strength:strengthTarget,cardio:cardioTarget,quality:qualityWanted?1:0}};
 }
 baseSessionFor=function(date){return v3PlanWeek(date).plan[date]?.session||CARDIO.recovery};
 recommendation=function(date){
