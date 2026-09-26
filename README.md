@@ -54,3 +54,5 @@ La produzione è distribuita automaticamente da Vercel quando viene aggiornato `
 ## Privacy
 
 Il repository non contiene token COROS, URL iCal privati o password. I dati locali dell'allenamento restano nel browser; Health e gli snapshot COROS usati per la sincronizzazione sono conservati nel Blob privato del progetto Vercel.
+
+<!-- Redeploy trigger: refresh production environment variables for Google Calendar -->
