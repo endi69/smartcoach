@@ -1,37 +1,56 @@
 # SmartCoach
 
-SmartCoach è una PWA mobile-first per allenamento ibrido: ipertrofia, forza di base, ricostruzione della base aerobica Z2 e gestione del recupero.
+SmartCoach v3 è una PWA mobile-first per allenamento ibrido. Il principio della v3 è semplice: le schermate non hanno più dataset separati. Home, Settimana, Training, Recovery, Sonno e Trend leggono lo stesso stato atleta costruito da COROS, Apple Health, Google Calendar e log SmartCoach.
 
-## SmartCoach v2
-- Home "Oggi" con readiness e allenamento consigliato
-- Programma settimanale adattivo: 3 sedute forza + 2 Z2 + recupero
-- Riduzione automatica del volume in base a readiness e carico dei turni
-- Logger serie-per-serie con kg, ripetizioni e RPE
-- Progressione automatica a doppia progressione
-- Varianti esercizio e switch Casa / Palestra
-- Cardio intercambiabile: corsa, cyclette, corso endurance, camminata
-- Storico, volume stimato, costanza e trend del peso
-- Check-in sonno / energia / DOMS / stress / RHR / HRV / COROS recovery
-- Sezioni Recovery, Corpo, Nutrizione, Sonno, Connessioni e Backup
-- Snapshot COROS e turni Google Calendar già integrati nel motore adattivo
-- PWA offline con service worker e dati locali
-- Backup e ripristino JSON
+## SmartCoach v3
 
-## Dati e privacy
-I log inseriti nell'app restano nel browser tramite localStorage. Il repository non contiene password o token personali.
+- Timeline unica COROS + SmartCoach, con deduplicazione per ID attività
+- Planner settimanale dinamico: considera allenamenti già svolti, recovery, training load, turni e obiettivi
+- Readiness spiegabile: sonno, HRV, FC riposo, COROS Recovery, turni e check-in soggettivo
+- COROS Running Fitness: VO₂max, Running Level, soglia, race predictor, load ratio e attività
+- Zone FC del Running Fitness Test trattate come valori COROS autorevoli, senza ricalcolo
+- Apple Health con storico 180 giorni, passi, distanza, HRV e FC a riposo
+- Sonno Apple Health ricostruito per intervalli: notte principale separata dai pisolini e attribuita al giorno di risveglio
+- COROS usato come fallback per sonno e passi se Apple Health non ha un dato giornaliero valido
+- Google Calendar usato per ricavare automaticamente il carico dei turni
+- Trend 7/28/90 giorni: corsa, km, passi, distanza, sonno, HRV, FC riposo, load ratio e storico allenamenti
+- PWA offline con cache versionata e backup locale
 
-COROS e Google Calendar vengono letti tramite connessioni autorizzate esterne e riportati nell'app come snapshot. La PWA statica non contiene credenziali. Apple Health/HealthKit non è leggibile direttamente da una PWA browser.
+## Flussi dati
+
+### Apple Health
+
+Apple Watch / iPhone → Apple Health → Health Exporter → `/api/health` → Vercel Blob → SmartCoach.
+
+L'API conserva i batch originali. Quando il parser viene aggiornato, lo storico può essere ricostruito senza richiedere un nuovo export completo.
+
+### COROS
+
+SmartCoach → `/api/coros-connect` → OAuth COROS → COROS MCP → `/api/coros` → Vercel Blob → SmartCoach.
+
+La PWA sincronizza all'apertura, quando torna visibile e periodicamente mentre è in uso. Il backend mantiene uno snapshot in cache e conserva la cronologia delle valutazioni fitness.
+
+### Google Calendar
+
+Google Calendar private iCal feed → `/api/calendar` → SmartCoach.
+
+Configurare su Vercel la variabile server-side:
+
+`GOOGLE_CALENDAR_ICS_URL`
+
+con l'indirizzo iCal privato del calendario. L'URL resta sul server e non viene inviato al browser.
+
+## Variabili Vercel
+
+- `BLOB_READ_WRITE_TOKEN` — obbligatoria per Health e persistenza COROS
+- `GOOGLE_CALENDAR_ICS_URL` — necessaria per il sync automatico dei turni
+
+L'autorizzazione COROS viene completata dall'utente tramite OAuth e i token vengono conservati nel Blob privato.
 
 ## Deploy
-Il deploy di produzione è gestito automaticamente da Vercel a ogni push su `main`. Non è necessario GitHub Pages.
 
-## Programma iniziale
-- Lunedì: Lower A
-- Martedì: Z2
-- Mercoledì: recupero
-- Giovedì: Upper
-- Venerdì: recupero
-- Sabato: Lower B / posterior chain
-- Domenica: Z2 easy
+La produzione è distribuita automaticamente da Vercel quando viene aggiornato `main`.
 
-Nelle prime due settimane di rientro l'obiettivo è evitare il cedimento, ricostruire tolleranza e aumentare gradualmente volume e carichi.
+## Privacy
+
+Il repository non contiene token COROS, URL iCal privati o password. I dati locali dell'allenamento restano nel browser; Health e gli snapshot COROS usati per la sincronizzazione sono conservati nel Blob privato del progetto Vercel.
