@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
-import { parseFitness, parseSleep, parseSleepHrv, parseRestingHeartRate, parseActivities, parseLoad, protectedResourceFromError, trustedCorosMcpUrl } from '../lib/coros-mcp.js';
+import { decodeToolText, parseFitness, parseSleep, parseSleepHrv, parseRestingHeartRate, parseDailyHealth, parseActivities, parseActivityDetail, parseLoad, protectedResourceFromError, trustedCorosMcpUrl } from '../lib/coros-mcp.js';
 
 const fitness=parseFitness(`Fitness Assessment Overview
 VO2max: 50
@@ -13,6 +13,8 @@ Marathon Prediction: 4:26:34`);
 assert.equal(fitness.vo2max,50);
 assert.equal(fitness.runningLevel,71);
 assert.equal(fitness.racePredictions.k5,'26:13');
+assert.equal(fitness.racePredictions.marathon,'4:26:34');
+assert.equal(fitness.thresholdPace,'5:27 /km');
 
 const sleep=parseSleep(`Sleep Overview
 2026-09-26
@@ -91,3 +93,71 @@ assert.equal(trustedCorosMcpUrl('http://mcpus.coros.com/mcp'),null);
 const callbackSource=fs.readFileSync(new URL('../api/coros-callback.js',import.meta.url),'utf8');
 assert.match(callbackSource,/finishAuth\(params\.get\(['"]code['"]\)\)/);
 assert.doesNotMatch(callbackSource,/finishAuth\(params\)/);
+
+
+const encodedFitness=JSON.stringify(`Fitness Assessment Overview
+========================
+
+VO2max: 50
+Running Level: 71
+Threshold Pace: 5:27 /km
+5 km Prediction: 26:13
+10 km Prediction: 54:57
+Half Marathon Prediction: 2:04:44
+Marathon Prediction: 4:26:34`);
+const decodedFitness=decodeToolText(encodedFitness);
+assert.match(decodedFitness,/\nRunning Level: 71\n/);
+assert.equal(parseFitness(decodedFitness).racePredictions.marathon,'4:26:34');
+
+const encodedDaily=JSON.stringify(`Daily Health Data — Last 7 days | Resting HR: 58 bpm | HRV Baseline: 42 ms
+Note: sleep entries are dated by their wake-up day.
+
+--- 20260926 ---
+Steps: 1,647 | Calories: 82 kcal | Exercise: 0 min
+Stress: Avg 26
+Sleep Summary:
+  Total: 6h 27min | Deep: 1h 24min | Light: 3h 16min | REM: 1h 39min | Awake: 8 min
+  Sleep HR: Avg 61 bpm | Min 54 bpm | Max 75 bpm`);
+const daily=parseDailyHealth(decodeToolText(encodedDaily));
+assert.equal(daily.baseline.restingHr,58);
+assert.equal(daily.baseline.hrvBaseline,42);
+assert.equal(daily.rows[0].steps,1647);
+assert.equal(daily.rows[0].sleepPeriodMinutes,387);
+
+const encodedActivities=JSON.stringify(`Sport Records — 2026-09-01 to 2026-09-26 (2 records)
+========================
+
+1. Strength — 2026-09-25
+   Location: Forza
+   Time Window: startTimestamp=1790354113 | endTimestamp=1790356890
+   Duration: 46:16 | Sets: 19
+ | Avg HR: 110 bpm | Calories: 251 kcal
+   LabelId: 480596766385799368 | SportType: 402
+
+2. Padel — 2026-09-24
+   Location: Padel
+   Time Window: startTimestamp=1790279034 | endTimestamp=1790285026
+   Duration: 1:39:53
+ | Avg HR: 128 bpm | Calories: 788 kcal
+   LabelId: 480575953779589620 | SportType: 1006`);
+const liveShapeActs=parseActivities(decodeToolText(encodedActivities));
+assert.equal(liveShapeActs.length,2);
+assert.equal(liveShapeActs[0].sets,19);
+assert.equal(liveShapeActs[1].sport,'Padel');
+
+const detail=parseActivityDetail(decodeToolText(JSON.stringify(`🏋️ Strength Activity Details
+========================================
+
+Workout Time: 46:16
+Total Time: 46:17
+Sets: 19
+Average Heart Rate: 110 bpm
+Calories: 251 kcal
+Training Load: 18
+Aerobic TE: 1.4
+Anaerobic TE: 0.0
+Training Focus: Recovery`)));
+assert.equal(detail.trainingLoad,18);
+assert.equal(detail.aerobicTE,1.4);
+assert.equal(detail.anaerobicTE,0);
+assert.equal(detail.focus,'Recovery');
