@@ -59,6 +59,16 @@ function stageOf(v){
   if(x.includes('asleep')||x.includes('sleeping'))return 'asleep';
   return null;
 }
+function healthKitSleepStage(value){
+  const x=n(value);
+  if(x===0)return 'inbed';
+  if(x===1)return 'asleep';
+  if(x===2)return 'awake';
+  if(x===3)return 'light';
+  if(x===4)return 'deep';
+  if(x===5)return 'rem';
+  return null;
+}
 function unitConvert(kind,value,unit=''){
   let v=Number(value); if(!Number.isFinite(v))return null;
   const u=clean(unit);
@@ -195,7 +205,7 @@ export function extractHealth(root,receivedAt){
     }
     if((localKind==='sleep'||clean(local).includes('sleep'))&&start&&end&&ts(end)>ts(start)){
       const status=[desc,v.value,v.categoryValue,v.category_value,v.sleepStage,v.stage,v.status].filter(x=>typeof x==='string').join(' ');
-      const stage=stageOf(status);
+      const stage=stageOf(status)||healthKitSleepStage(v.value);
       if(stage)sleepIntervals.push({start,end,stage,source});
     }
     for(const [k,x] of entries){
