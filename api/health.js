@@ -36,7 +36,17 @@ function kindFor(v){
 function firstString(o,keys){for(const k of keys)if(typeof o?.[k]==='string'&&o[k])return o[k];return null}
 function firstDate(o,keys){for(const k of keys){const v=o?.[k];if(typeof v==='string'&&ts(v)!=null)return v}return null}
 function sourceOf(o){
-  return firstString(o,['sourceName','source','deviceName','device','source_name','sourceBundle','source_bundle','app'])||'unknown';
+  const direct=firstString(o,['sourceName','deviceName','source_name','sourceBundle','source_bundle','app']);
+  if(direct)return direct;
+  for(const k of ['source','device']){
+    const x=o?.[k];
+    if(typeof x==='string'&&x)return x;
+    if(x&&typeof x==='object'){
+      const nested=firstString(x,['name','sourceName','deviceName','bundleIdentifier','bundle','model']);
+      if(nested)return nested;
+    }
+  }
+  return 'unknown';
 }
 function stageOf(v){
   const x=clean(v);
@@ -170,7 +180,11 @@ function extractHealth(root,receivedAt){
   }).sort((a,b)=>a.date.localeCompare(b.date));
 
   const distByDay=byDay(obs.distance);
-  series.distance=Object.entries(distByDay).map(([date,rows])=>({date,value:round2(rows.reduce((s,x)=>s+x.value,0)),samples:rows.length,source:'Apple Health'})).sort((a,b)=>a.date.localeCompare(b.date));
+  series.distance=Object.entries(distByDay).map(([date,rows])=>{
+    const per={};for(const x of rows)(per[x.source]||(per[x.source]=[])).push(x.value);
+    const totals=Object.values(per).map(a=>a.reduce((s,v)=>s+v,0));
+    return {date,value:round2(totals.length?Math.max(...totals):0),samples:rows.length,source:'Apple Health'};
+  }).sort((a,b)=>a.date.localeCompare(b.date));
 
   for(const kind of ['rhr','respiratory','temp']){
     series[kind]=Object.entries(byDay(obs[kind])).map(([date,rows])=>({date,value:round2(median(rows.map(x=>x.value))),samples:rows.length,source:'Apple Health'})).sort((a,b)=>a.date.localeCompare(b.date));
