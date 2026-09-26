@@ -646,44 +646,6 @@ function currentReentry(date=dateKey(TODAY())){
 state.settings.reentry=currentReentry(state.selectedDate||dateKey(TODAY()));save();
 
 
-/* COROS Training Hub v2.6 — COROS is authoritative for running physiology. */
-function corosActivityHistory(){
-  const imported=(state.coros.activities||[]).map(a=>({
-    id:'coros-'+a.corosId,corosId:a.corosId,date:a.date,name:a.sport,type:a.type,
-    minutes:a.minutes,avgHr:a.avgHr,calories:a.calories,trainingLoad:a.trainingLoad,
-    aerobicTE:a.aerobicTE,anaerobicTE:a.anaerobicTE,focus:a.focus,source:'COROS'
-  }));
-  const local=state.history||[];
-  const ids=new Set(imported.map(x=>x.corosId));
-  return [...imported,...local.filter(x=>!x.corosId||!ids.has(x.corosId))]
-    .sort((a,b)=>String(b.date).localeCompare(String(a.date)));
-}
-function corosZoneForHr(hr){
-  if(hr==null)return null;
-  return (state.coros.hrZones?.zones||[]).find(z=>(z.min==null||hr>=z.min)&&(z.max==null||hr<=z.max))||null;
-}
-function trainingHub(){
-  setTab('train');setHeader('Training Hub','COROS + SmartCoach');
-  const c=state.coros,z=c.hrZones||{},acts=corosActivityHistory(),pred=c.racePredictions||{};
-  const zones=(z.zones||[]).map(x=>`<div class="history-item"><div class="row"><div><b>${esc(x.name)}</b><div class="muted tiny">${esc(x.pct||'')} · COROS</div></div><b class="num">${esc(x.range)} bpm</b></div></div>`).join('');
-  const activities=acts.slice(0,12).map(a=>{
-    const zone=corosZoneForHr(a.avgHr);
-    return `<div class="history-item"><div class="row start"><div class="grow"><b>${esc(a.sport||a.name)}</b><div class="muted tiny">${fmtDate(String(a.date).slice(0,10),{day:'numeric',month:'short',year:'numeric'})} · ${a.source==='COROS'?'COROS':'SmartCoach'}</div></div><span class="pill">${Math.round(+a.minutes||0)} min</span></div><div class="history-meta">${a.avgHr!=null?`<span class="pill">FC ${a.avgHr}${zone?' · '+esc(zone.name):''}</span>`:''}${a.trainingLoad!=null?`<span class="pill">Load ${a.trainingLoad}</span>`:''}${a.aerobicTE!=null?`<span class="pill">Aer TE ${a.aerobicTE}</span>`:''}${a.anaerobicTE!=null?`<span class="pill">Anaer TE ${a.anaerobicTE}</span>`:''}${a.focus?`<span class="pill">${esc(a.focus)}</span>`:''}</div></div>`;
-  }).join('');
-  const lh=c.loadHistory||[];
-  const maxL=Math.max(1,...lh.map(x=>Math.max(x.short||0,x.long||0)));
-  const loads=lh.map(x=>`<div style="margin-top:10px"><div class="row tiny"><span>${fmtDate(x.date)}</span><span>breve ${x.short} · lungo ${x.long} · ratio ${Number(x.ratio).toFixed(2)}</span></div><div class="bar" style="margin-top:5px"><i style="width:${Math.round((x.short/maxL)*100)}%"></i></div></div>`).join('');
-  app.innerHTML=`<div class="stack">
-    <section class="card hero"><div class="row start"><div><div class="pills"><span class="pill good">COROS sincronizzato</span><span class="pill">snapshot ${esc(c.synced||'–')}</span></div><h2 style="margin-top:12px">Running Fitness</h2><p class="muted small">I valori fisiologici COROS sono riportati senza ricalcolo SmartCoach.</p></div><div class="score-ring" style="--score:${clamp(c.runningLevel||0,0,100)}"><b>${c.runningLevel??'–'}</b><small>RUN</small></div></div>
-    <div class="grid2" style="margin-top:12px"><div class="metric"><small>VO₂max · COROS</small><b>${c.vo2max??'–'}</b></div><div class="metric"><small>Passo soglia · COROS</small><b>${esc(c.thresholdPace||'–')}</b></div><div class="metric"><small>Soglia FC · COROS</small><b>${z.thresholdHr??'–'} bpm</b></div><div class="metric"><small>Recovery · COROS</small><b>${c.recovery??'–'}%</b></div></div></section>
-    <section class="card"><h3>Race Predictor · COROS</h3><div class="grid2" style="margin-top:10px"><div class="metric"><small>5 km</small><b>${pred.k5||'–'}</b></div><div class="metric"><small>10 km</small><b>${pred.k10||'–'}</b></div><div class="metric"><small>Mezza</small><b>${pred.half||'–'}</b></div><div class="metric"><small>Maratona</small><b>${pred.marathon||'–'}</b></div></div></section>
-    <section class="card"><div class="row"><div><h3>Zone FC COROS</h3><p class="muted tiny" style="margin:0">${esc(z.type||'')} · Running Fitness Test</p></div><span class="pill good">LTHR ${z.thresholdHr??'–'}</span></div>${zones}<div class="notice goodbox" style="margin-top:10px">SmartCoach usa queste zone per prescrizione e analisi. Non applica formule FCmax alternative.</div></section>
-    <section class="card"><div class="row"><div><h3>Carico</h3><p class="muted tiny" style="margin:0">COROS short/long-term load</p></div><span class="pill">ratio ${Number(c.loadRatio??0).toFixed(2)}</span></div><div class="grid2" style="margin-top:10px"><div class="metric"><small>Breve</small><b>${c.shortLoad??'–'}</b></div><div class="metric"><small>Lungo</small><b>${c.longLoad??'–'}</b></div></div>${loads}</section>
-    <section class="card"><div class="row"><div><h3>Attività</h3><p class="muted tiny" style="margin:0">COROS + SmartCoach, senza duplicati</p></div><span class="pill">${acts.length}</span></div>${activities||'<p class="muted small">Nessuna attività.</p>'}</section>
-    <section class="card soft"><h3>Motore SmartCoach</h3><p class="muted small">Running Level, soglie, race predictor, recovery e carico restano dati COROS. SmartCoach usa questi input insieme a sonno/HRV, forza, attività extra e turni per adattare volume, Z2, qualità e recupero.</p></section>
-  </div>`;
-}
-
 document.querySelectorAll('.bottom-nav button').forEach(b=>b.addEventListener('click',()=>{
   const t=b.dataset.tab;
   if(t==='today')todayView(state.selectedDate||dateKey(TODAY()));
