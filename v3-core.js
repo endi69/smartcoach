@@ -34,7 +34,7 @@ function v3NormalizeActivity(a,source){
   const mins=v3Num(a.durationMinutes??a.minutes??a.workoutMinutes);
   return {...a,id:a.id||a.corosId||a.labelId||uid(),corosId:a.corosId||a.labelId||null,source:a.source||source||'SmartCoach',
     date:String(a.date||a.startDate||'').slice(0,10),name:a.sport||a.name||a.title||'Attività',kind:v3Kind(a),minutes:mins,
-    distanceKm:v3Num(a.distanceKm??a.distance),avgHr:v3Num(a.avgHr??a.averageHr),calories:v3Num(a.calories),
+    distanceKm:v3Num(a.distanceKm??a.distance??a.km),avgHr:v3Num(a.avgHr??a.averageHr),calories:v3Num(a.calories),
     trainingLoad:v3Num(a.trainingLoad),aerobicTE:v3Num(a.aerobicTE),anaerobicTE:v3Num(a.anaerobicTE)};
 }
 function unifiedActivities(){
@@ -113,7 +113,7 @@ function v3RecentStrengthFocus(){
 function v3PlanWeek(anchor=state.selectedDate||v3Today()){
   const ws=v3WeekStart(parseDate(anchor)),today=v3Today(),days=Array.from({length:7},(_,i)=>dateKey(addDays(ws,i))),actual=new Map(days.map(d=>[d,historyOn(d)]));
   let strengthDone=days.filter(d=>(actual.get(d)||[]).some(a=>a.kind==='strength')).length;
-  let z2Done=days.filter(d=>(actual.get(d)||[]).some(a=>['run','bike','cardio'].includes(a.kind)&&/z2|easy|facile|base/i.test(String(a.name||a.focus||'')))).length;
+  let z2Done=days.filter(d=>(actual.get(d)||[]).some(a=>['run','bike','cardio'].includes(a.kind)&&/z2|easy|facile|base/i.test(String((a.name||'')+' '+(a.focus||''))))).length;
   const plan={},focusOrder=['lowerA','upper','lowerB'];let focusIdx=Math.max(0,focusOrder.indexOf(v3RecentStrengthFocus())),lastStrengthDate=null;
   for(const d of days){
     const acts=actual.get(d)||[],sh=v3Shift(d);if(acts.some(a=>a.kind==='strength'))lastStrengthDate=d;
