@@ -27,3 +27,5 @@ jobs:
           node --check lib/coros-mcp.js
       - name: Import COROS MCP bridge
         run: node -e "import('./lib/coros-mcp.js').then(()=>console.log('MCP import OK'))"
+      - name: COROS parser smoke tests
+        run: node tests/coros-parsers.mjs
