@@ -83,9 +83,11 @@ moreHome=function(){
   app.innerHTML=`<div class="menu-grid"><button class="menu" onclick="moreView('goals')"><b>Obiettivi</b><span>Modificano il piano</span></button><button class="menu" onclick="moreView('recovery')"><b>Recovery</b><span>Dati e spiegazione</span></button><button class="menu" onclick="moreView('body')"><b>Corpo</b><span>Peso e misure</span></button><button class="menu" onclick="moreView('nutrition')"><b>Nutrizione</b><span>Solo se vuoi tracciarla</span></button><button class="menu" onclick="moreView('sleep')"><b>Sonno</b><span>Principale + nap</span></button><button class="menu" onclick="moreView('connections')"><b>Connessioni</b><span>Health, COROS, Calendar</span></button><button class="menu" onclick="moreView('data')"><b>Dati</b><span>Backup e ripristino</span></button></div>`;
 };
 addShift=function(){
-  const d=val('shiftDate'),title=(val('shiftTitle')||'Turno').trim(),load=clamp(+val('shiftLoad')||1,1,4);
+  const d=val('shiftDate'),title=(val('shiftTitle')||'Turno').trim(),raw=Number(val('shiftLoad')),load=clamp(Number.isFinite(raw)?raw:1,0,4);
   if(!d){toast('Scegli una data');return}
-  state.shifts=(state.shifts||[]).filter(s=>!(s.source==='manual'&&s.date===d));state.shifts.push({date:d,title,load,source:'manual'});save();toast('Turno manuale salvato');recoveryPage();
+  const workType=load===0?'availability':load===4?'24h':load===3?'night':load===2?'afternoon':'morning';
+  state.shifts=(state.shifts||[]).filter(s=>!(s.source==='manual'&&s.date===d));
+  state.shifts.push({date:d,title,load,workType,countsAsWork:load>0,source:'manual'});save();toast('Turno manuale salvato');recoveryPage();
 };
 
 function v3Boot(){
