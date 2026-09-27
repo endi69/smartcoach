@@ -9,7 +9,7 @@ todayView=function(date=state.selectedDate||v3Today()){
   state.selectedDate=date;save();setTab('today');
   const rec=recommendation(date),rd=v3Readiness(date),h=rd.health,acts=historyOn(date),band=readinessBand(rec.score);
   setHeader(date===v3Today()?'Oggi':fmtDate(date,{weekday:'long',day:'numeric',month:'long'}),'');
-  const shift=rd.shift?`<span class="pill warn">${esc(rd.shift.title)}</span>`:'',nap=h.nap&&h.nap>.15?` · +${h.nap.toFixed(1)} h nap`:'';
+  const shift=rd.shift?`<span class="pill ${rd.shift.workType==='availability'?'good':'warn'}">${esc(rd.shift.title)}${rd.shift.workType==='availability'?' · carico 0':''}</span>`:'',nap=h.nap&&h.nap>.15?` · +${h.nap.toFixed(1)} h nap`:'';
   const ratio=v3Num(state.coros.loadRatio),short=v3Num(state.coros.shortLoad),long=v3Num(state.coros.longLoad);
   app.innerHTML=`<div class="stack v3stack">
   <section class="card hero v3hero"><div class="row start"><div class="grow"><div class="pills"><span class="pill ${band}">${readinessLabel(rec.score)}</span>${shift}</div><h2 style="margin-top:12px">${esc(rec.session.title)}</h2><p class="muted small">${esc(rec.reason)}${rec.preferredTime?` · ${esc(rec.preferredTime)}`:''}${rec.preferredPlace?` · ${rec.preferredPlace==='PALESTRA'?'palestra':'casa'}`:''} · ${esc(rec.session.focus||'')}</p></div><div class="score-ring" style="--score:${rec.score}"><b>${rec.score}</b><small>READY</small></div></div><div class="actions"><button class="btn" onclick="startRecommended('${date}')">${rec.session.type==='recovery'?'Apri':'Inizia'}</button><button class="btn secondary" onclick="openCheckin('${date}')">Come mi sento</button></div></section>
@@ -24,7 +24,7 @@ weekView=function(){
   setTab('week');setHeader('Settimana','piano adattivo + attività reali');
   const {days,plan}=v3PlanWeek(state.selectedDate||v3Today()),today=v3Today();
   const rows=days.map(d=>{const p=plan[d],acts=p.actual||[],actual=acts.length?acts.map(a=>a.name).join(' + '):null,s=p.session,isPast=d<v3Today(),main=actual||s?.short||(isPast?'Nessuna attività':'Recupero'),sub=[];
-    if(actual)sub.push('registrato · '+[...new Set(acts.map(a=>a.source))].join('/'));else if(s)sub.push('proposto');if(p.strategy?.preferredTime&&s)sub.push(p.strategy.preferredTime);if(p.shift)sub.push(p.shift.title);
+    if(actual)sub.push('registrato · '+[...new Set(acts.map(a=>a.source))].join('/'));else if(s)sub.push('proposto');if(p.strategy?.preferredTime&&s)sub.push(p.strategy.preferredTime);if(p.shift)sub.push(p.shift.workType==='availability'?p.shift.title+' · carico 0':p.shift.title);
     return `<button class="day ${d===today?'today':''} ${acts.length?'done':''}" onclick="todayView('${d}')"><div><div class="dow">${parseDate(d).toLocaleDateString('it-IT',{weekday:'short'})}</div><div class="date">${parseDate(d).getDate()}</div></div><div><b>${esc(main)}</b><div class="muted tiny">${sub.map(x=>p.shift&&x===p.shift.title?`<span class="shift">${esc(x)}</span>`:esc(x)).join(' · ')}</div></div><i class="status-dot"></i></button>`}).join('');
   app.innerHTML=`<div class="stack"><section class="card"><div class="notice goodbox">Il piano non è legato ai giorni fissi: attività registrate, recupero e turni spostano automaticamente ciò che resta da fare.</div><div class="week" style="margin-top:12px">${rows}</div></section></div>`;
 };
