@@ -85,10 +85,34 @@ function v3Baseline(kind,days=28,date=v3Today()){
   const start=dateKey(addDays(parseDate(date),-days));return v3Median(v3Series(kind,days+2).filter(x=>x.date>=start&&x.date<date).map(x=>+x.value));
 }
 function v3ManualShifts(){return (state.shifts||[]).filter(s=>s.source==='manual'||!V3_LEGACY_SHIFTS.has((s.date||'')+'|'+(s.title||'')))}
+function v3ShiftType(s){
+  if(s?.workType)return s.workType;
+  const x=String(s?.title||'').toLowerCase();
+  if(/reperib/.test(x))return 'availability';
+  if(/24\s*ore|24\s*h|24h/.test(x))return '24h';
+  if(/weekend/.test(x)&&/(osped|spital|repart|medicina|simio)/.test(x))return 'morning';
+  if(/notte/.test(x))return 'night';
+  if(/pomeriggio|\bpome\b/.test(x))return 'afternoon';
+  if(/mattina/.test(x))return 'morning';
+  const load=+s?.load||0;
+  return load>=4?'24h':load===3?'night':load===2?'afternoon':load===1?'morning':null;
+}
 function v3Shift(date){
   const xs=[...(state.calendar?.shifts||[]),...v3ManualShifts()].filter(s=>s.date===date);if(!xs.length)return null;
-  const titles=[...new Set(xs.map(x=>x.title).filter(Boolean))];
-  return {date,title:titles.join(' + '),load:Math.min(4,v3Sum(xs.map(x=>x.load||1))),source:xs.some(x=>x.source==='Google Calendar')?'Google Calendar':'manual'};
+  const titles=[...new Set(xs.map(x=>x.title).filter(Boolean))],types=xs.map(v3ShiftType).filter(Boolean);
+  const availability=types.includes('availability'),workTypes=[...new Set(types.filter(x=>x!=='availability'))];
+  const workType=['24h','night','afternoon','morning'].find(x=>workTypes.includes(x))||(availability?'availability':null);
+  const load=workType==='24h'?4:workType==='night'?3:workType==='afternoon'?2:workType==='morning'?1:0;
+  return {date,title:titles.join(' + '),load,workType,workTypes,availability,countsAsWork:workTypes.length>0,source:xs.some(x=>x.source==='Google Calendar')?'Google Calendar':'manual'};
+}
+function v3ScheduleStrategy(shift){
+  const t=shift?.workType||null;
+  if(t==='24h')return {workType:t,preferredWorkout:'recovery',preferredPlace:null,preferredTime:'nessun allenamento strutturato',reason:'Turno di 24 ore: priorità a recupero e sonno'};
+  if(t==='night')return {workType:t,preferredWorkout:'strength',preferredPlace:'PALESTRA',preferredTime:'prima della notte',exerciseLimit:5,setDelta:-1,rirTarget:'3–4',maxMinutes:40,reason:'Turno di notte: palestra breve e meno intensa'};
+  if(t==='afternoon')return {workType:t,preferredWorkout:'cardio',preferredPlace:null,preferredTime:'mattina',reason:'Turno di pomeriggio: corsa/cardio al mattino'};
+  if(t==='morning')return {workType:t,preferredWorkout:'strength',preferredPlace:'PALESTRA',preferredTime:'dopo il turno',exerciseLimit:'full',setDelta:0,rirTarget:'2–3',reason:'Turno di mattina: palestra completa dopo il lavoro'};
+  if(t==='availability')return {workType:t,preferredWorkout:'normal',preferredPlace:null,preferredTime:null,reason:'Reperibilità: non conta come carico finché non si attiva'};
+  return {workType:null,preferredWorkout:'normal',preferredPlace:null,preferredTime:null,reason:'Piano adattivo'};
 }
 shiftOn=function(date){return v3Shift(date)};
 
@@ -103,7 +127,11 @@ function v3Readiness(date=v3Today()){
   if(check.soreness!=null)add('DOMS',(6-(+check.soreness))*20,.6,check.soreness+'/5','check-in');
   if(check.stress!=null)add('Stress',(6-(+check.stress))*20,.6,check.stress+'/5','check-in');
   let score=parts.length?Math.round(parts.reduce((s,x)=>s+x.value*x.weight,0)/parts.reduce((s,x)=>s+x.weight,0)):70;
-  const sh=v3Shift(date);if(sh)score-=sh.load>=4?18:sh.load===3?10:sh.load===2?5:2;
+  const sh=v3Shift(date),shiftType=sh?.workType;
+  // Calendar is primarily a scheduling constraint, not a physiological penalty.
+  // Morning/afternoon and pure availability do not lower readiness before training.
+  if(shiftType==='24h')score-=18;
+  else if(shiftType==='night')score-=5;
   const ratio=v3Num(state.coros.loadRatio);if(ratio!=null&&ratio>1.6)score-=10;else if(ratio!=null&&ratio>1.35)score-=5;
   return {score:clamp(Math.round(score),0,100),parts:parts.sort((a,b)=>b.weight-a.weight),shift:sh,health:h};
 }
@@ -132,35 +160,79 @@ function v3PlanWeek(anchor=state.selectedDate||v3Today()){
   let aerobicDone=days.filter(d=>(actual.get(d)||[]).some(a=>['run','bike','cardio'].includes(a.kind)&&/z2|easy|facile|base/i.test(String((a.name||'')+' '+(a.focus||''))))).length;
   let qualityDone=days.filter(d=>(actual.get(d)||[]).some(a=>a.kind==='run'&&/threshold|tempo|interval|quality|qualit|soglia/i.test(String((a.name||'')+' '+(a.focus||''))))).length;
   const plan={};let focusIdx=Math.max(0,strengthOrder.indexOf(v3RecentStrengthFocus())),lastStrengthDate=null;
+  const nextStrength=()=>{const sid=strengthOrder[focusIdx%strengthOrder.length];focusIdx++;strengthDone++;lastStrengthDate=currentDay;return sid};
+  let currentDay=null;
   for(const d of days){
-    const acts=actual.get(d)||[],sh=v3Shift(d);if(acts.some(a=>a.kind==='strength'))lastStrengthDate=d;
-    if(d<today||acts.length){plan[d]={actual:acts,session:null,shift:sh};continue}
+    currentDay=d;
+    const acts=actual.get(d)||[],sh=v3Shift(d),strategy=v3ScheduleStrategy(sh);if(acts.some(a=>a.kind==='strength'))lastStrengthDate=d;
+    if(d<today||acts.length){plan[d]={actual:acts,session:null,shift:sh,strategy};continue}
     const previous=days[days.indexOf(d)-1],prevHadStrength=(previous&&(actual.get(previous)||[]).some(a=>a.kind==='strength'))||lastStrengthDate===previous;
     let sid='recovery',needStrength=Math.max(0,strengthTarget-strengthDone),needAerobic=Math.max(0,cardioTarget-aerobicDone-qualityDone);
-    if(sh?.load>=4)sid='recovery';
-    else if(sh?.load===3){
-      if(needAerobic>0){sid='z2short';aerobicDone++}
-    }else if(needStrength>0&&!prevHadStrength){
-      sid=strengthOrder[focusIdx%strengthOrder.length];focusIdx++;strengthDone++;lastStrengthDate=d;
-    }else if(qualityWanted&&!qualityDone&&needAerobic>0&&(!sh||sh.load<=1)){
-      sid='runQuality';qualityDone++;
-    }else if(needAerobic>0){
-      sid=needAerobic>1?'z2short':'z2long';aerobicDone++;
+    if(strategy.workType==='24h'){
+      sid='recovery';
+    }else if(strategy.workType==='night'){
+      // Night shifts reserve the training slot for a short gym session.
+      if(needStrength>0)sid=nextStrength();
+    }else if(strategy.workType==='afternoon'){
+      // Afternoon work is used for morning aerobic training, never for a planned strength session.
+      if(qualityWanted&&!qualityDone&&needAerobic>0){sid='runQuality';qualityDone++}
+      else if(needAerobic>0){sid=needAerobic>1?'z2short':'z2long';aerobicDone++}
+    }else if(strategy.workType==='morning'){
+      // Morning-only work leaves the later part of the day available for a complete gym session.
+      if(needStrength>0&&!prevHadStrength)sid=nextStrength();
+      else if(needAerobic>0){sid=needAerobic>1?'z2short':'z2long';aerobicDone++}
+    }else{
+      // Availability alone behaves exactly like a free day.
+      if(needStrength>0&&!prevHadStrength)sid=nextStrength();
+      else if(qualityWanted&&!qualityDone&&needAerobic>0){sid='runQuality';qualityDone++}
+      else if(needAerobic>0){sid=needAerobic>1?'z2short':'z2long';aerobicDone++}
     }
-    plan[d]={actual:acts,session:sessionById(sid),shift:sh};
+    plan[d]={actual:acts,session:sessionById(sid),shift:sh,strategy};
   }
   return {days,plan,targets:{strength:strengthTarget,cardio:cardioTarget,quality:qualityWanted?1:0}};
 }
 baseSessionFor=function(date){return v3PlanWeek(date).plan[date]?.session||CARDIO.recovery};
+function safelyExerciseLimit(session){return Array.isArray(session?.exercises)?session.exercises.length:6}
 recommendation=function(date){
-  const p=v3PlanWeek(date).plan[date],ready=v3Readiness(date),r=latestReadiness(date),acts=historyOn(date);
-  let session=p?.session||CARDIO.recovery,adjust='Completo',reason='Piano adattivo',setDelta=0,cardioFactor=1;
-  if(acts.length){const hard=acts.some(a=>a.kind==='strength'||a.trainingLoad>=60||a.minutes>=60);if(hard){session=CARDIO.recovery;adjust='Già allenato';reason='Attività già registrata oggi';setDelta=-2;cardioFactor=.5}}
-  else if(ready.shift?.load>=4||ready.score<50){session=CARDIO.recovery;adjust='Recupero';reason=ready.shift?.load>=4?'Turno molto impegnativo':'Recupero insufficiente';setDelta=-2;cardioFactor=.55}
-  else if(ready.shift?.load>=3||ready.score<65){adjust=session.type==='cardio'?'Leggero':'Ridotto';reason=ready.shift?.load>=3?'Turno impegnativo':'Readiness ridotta';setDelta=-1;cardioFactor=.75}
-  else if(ready.score<78){adjust='Compatto';reason='Volume ridotto sul recupero attuale';setDelta=-1;cardioFactor=.85}
-  const av=+(r.availableMinutes||50);if(session.type!=='recovery'&&av<=35){adjust=av+' min';reason='Adattato al tempo disponibile';setDelta=Math.min(setDelta,av<=25?-2:-1);cardioFactor=Math.min(cardioFactor,av<=25?.6:.8)}
-  return {base:p?.session||session,session,score:ready.score,shift:ready.shift,adjust,reason,setDelta,cardioFactor,availableMinutes:av};
+  const p=v3PlanWeek(date).plan[date],ready=v3Readiness(date),r=latestReadiness(date),acts=historyOn(date),strategy=p?.strategy||v3ScheduleStrategy(ready.shift);
+  let session=p?.session||CARDIO.recovery,adjust='Completo',reason=strategy.reason||'Piano adattivo',setDelta=0,cardioFactor=1;
+  let availableMinutes=+(r.availableMinutes||50),exerciseLimit=null,rirTarget=null,preferredPlace=strategy.preferredPlace||null,preferredTime=strategy.preferredTime||null;
+  const isStrength=session&&session.type!=='cardio'&&session.type!=='recovery';
+
+  if(acts.length){
+    const hard=acts.some(a=>a.kind==='strength'||a.trainingLoad>=60||a.minutes>=60);
+    if(hard){session=CARDIO.recovery;adjust='Già allenato';reason='Attività già registrata oggi';setDelta=-2;cardioFactor=.5;exerciseLimit=null}
+  }else if(strategy.workType==='24h'||ready.score<50){
+    session=CARDIO.recovery;adjust='Recupero';reason=strategy.workType==='24h'?strategy.reason:'Recupero insufficiente';setDelta=-2;cardioFactor=.55;exerciseLimit=null;
+  }else{
+    if(strategy.workType==='night'&&isStrength){
+      setDelta=Math.min(setDelta,-1);exerciseLimit=5;rirTarget='3–4';availableMinutes=Math.min(availableMinutes,40);adjust='Palestra ridotta';reason=strategy.reason;
+    }else if(strategy.workType==='morning'&&isStrength){
+      exerciseLimit=session.exercises?.length||6;rirTarget='2–3';adjust='Palestra completa';reason=strategy.reason;
+    }else if(strategy.workType==='afternoon'&&session.type==='cardio'){
+      adjust='Mattina';reason=strategy.reason;
+    }else if(strategy.workType==='availability'){
+      reason=strategy.reason;
+    }
+
+    if(ready.score<65){
+      if(isStrength){setDelta=Math.min(setDelta,-1);exerciseLimit=Math.min(exerciseLimit||5,4);rirTarget='3–4'}
+      else if(session.type==='cardio')cardioFactor=Math.min(cardioFactor,.75);
+      adjust='Ridotto';reason='Readiness ridotta: '+reason;
+    }else if(ready.score<78&&strategy.workType!=='morning'){
+      if(isStrength)setDelta=Math.min(setDelta,-1);
+      if(session.type==='cardio')cardioFactor=Math.min(cardioFactor,.85);
+      adjust=adjust==='Completo'?'Compatto':adjust;
+    }
+
+    const av=+(r.availableMinutes||50);
+    if(session.type!=='recovery'&&av<=35){
+      availableMinutes=av;adjust=av+' min';reason='Tempo disponibile: '+reason;
+      if(isStrength){setDelta=Math.min(setDelta,av<=25?-2:-1);exerciseLimit=Math.min(exerciseLimit||safelyExerciseLimit(session),av<=25?4:5)}
+      else cardioFactor=Math.min(cardioFactor,av<=25?.6:.8);
+    }
+  }
+  return {base:p?.session||session,session,score:ready.score,shift:ready.shift,strategy,adjust,reason,setDelta,cardioFactor,availableMinutes,exerciseLimit,rirTarget,preferredPlace,preferredTime};
 };
 
 currentReentry=function(date=v3Today()){
