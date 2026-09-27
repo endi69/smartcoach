@@ -29,3 +29,5 @@ jobs:
         run: node -e "import('./lib/coros-mcp.js').then(()=>console.log('MCP import OK'))"
       - name: COROS parser smoke tests
         run: node tests/coros-parsers.mjs
+      - name: Calendar schedule semantics
+        run: node tests/calendar-rules.mjs
