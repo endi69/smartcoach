@@ -13,19 +13,20 @@ function parseDateValue(v){
   if(/^\d{8}T\d{6}$/.test(v))return v.slice(0,4)+'-'+v.slice(4,6)+'-'+v.slice(6,8)+'T'+v.slice(9,11)+':'+v.slice(11,13)+':'+v.slice(13,15);
   return v;
 }
-function classifyShift(summary,start,end){
-  const x=String(summary||'').toLowerCase();
-  const work=/(simio|spital|ambu|repart|guardia|reperib|turno|notte|mattina|pomeriggio|medicina|osped)/i.test(x);
-  if(!work)return null;
-  let load=1,label=summary||'Turno';
-  if(/24\s*ore|24h/.test(x))load=4;
-  else if(/notte/.test(x)&&/reperib|ambu|guardia/.test(x))load=4;
-  else if(/notte/.test(x))load=3;
-  else if(/reperib/.test(x))load=3;
-  else if(/pomeriggio/.test(x))load=2;
-  else if(/mattina/.test(x))load=1;
-  const date=String(start||'').slice(0,10);
-  return {date,title:label,load,source:'Google Calendar',start,end};
+export function classifyShift(summary,start,end){
+  const x=String(summary||'').toLowerCase(),label=summary||'Turno',date=String(start||'').slice(0,10);
+  // Reperibilità is availability, not work, unless the user later records an activation separately.
+  if(/reperib/.test(x)){
+    return {date,title:label,load:0,workType:'availability',countsAsWork:false,source:'Google Calendar',start,end};
+  }
+  const weekendHospital=/weekend/.test(x)&&/(osped|spital|repart|medicina|simio)/.test(x);
+  let workType=null,load=0;
+  if(/24\s*ore|24\s*h|24h/.test(x)){workType='24h';load=4}
+  else if(/notte/.test(x)){workType='night';load=3}
+  else if(/pomeriggio|\bpome\b/.test(x)){workType='afternoon';load=2}
+  else if(/mattina/.test(x)||weekendHospital){workType='morning';load=1}
+  else return null;
+  return {date,title:label,load,workType,countsAsWork:true,weekendHospital,source:'Google Calendar',start,end};
 }
 function parseIcs(ics){
   const text=unfoldIcs(ics),chunks=text.split('BEGIN:VEVENT').slice(1),events=[];

@@ -381,7 +381,7 @@ function weekView(){
   const days=Array.from({length:7},(_,i)=>{const d=dateKey(addDays(ws,i)),rec=recommendation(d),base=baseSessionFor(d),done=isDone(d,base.id)||historyOn(d).length>0;return `<button class="day ${d===today?'today':''} ${done?'done':''}" onclick="todayView('${d}')"><div><div class="dow">${parseDate(d).toLocaleDateString('it-IT',{weekday:'short'})}</div><div class="date">${parseDate(d).getDate()}</div></div><div><b>${esc(rec.session.short)}</b><div class="muted tiny">${esc(rec.adjust)}${rec.shift?` · <span class="shift">${esc(rec.shift.title)}</span>`:''}</div></div><i class="status-dot"></i></button>`});
   app.innerHTML=`<div class="stack"><section class="card"><div class="week">${days.join('')}</div></section></div>`;
 }
-function startRecommended(date){const rec=recommendation(date);openSession(rec.session.id,date,rec)}
+function startRecommended(date){const rec=recommendation(date);if(rec.preferredPlace){state.place=rec.preferredPlace;save()}openSession(rec.session.id,date,rec)}
 function trainingHub(){
   setTab('train');setHeader('Training','');const d=dateKey(TODAY()),rec=recommendation(d);
   const adaptiveMins=s=>{const av=+(latestReadiness(d).availableMinutes||0), raw=typeof s.mins==='number'?s.mins:(s.type==='cardio'?35:50), factor=s.type==='cardio'?(rec.cardioFactor||1):(rec.setDelta<=-2?.55:rec.setDelta<0?.8:1);return Math.max(15,Math.round(Math.min(raw,av||raw)*factor))};
@@ -424,9 +424,12 @@ function openSession(id,date=state.selectedDate,rec=null){
   setHeader(s.short||s.title,fmtDate(date,{weekday:'long',day:'numeric',month:'long'}));
   if(s.type==='cardio')return renderCardio(s,date,rec||recommendation(date));
   if(s.type==='recovery')return renderRecovery(date);
-  const adaptive=rec||recommendation(date),reduced=adaptive.setDelta<0,limit=adaptive.availableMinutes<=25?4:adaptive.availableMinutes<=35?5:s.exercises.length;
+  const adaptive=rec||recommendation(date),reduced=adaptive.setDelta<0;
+  const defaultLimit=adaptive.availableMinutes<=25?4:adaptive.availableMinutes<=35?5:s.exercises.length;
+  const requestedLimit=adaptive.exerciseLimit==='full'?s.exercises.length:(Number.isFinite(+adaptive.exerciseLimit)?+adaptive.exerciseLimit:null);
+  const limit=Math.max(1,Math.min(s.exercises.length,requestedLimit??defaultLimit)),rir=adaptive.rirTarget||(currentReentry(date)?'2–4':'1–3');
   const chosen=s.exercises.slice(0,limit);
-  app.innerHTML=`<div class="stack"><section class="card"><div class="row"><div><h2>${esc(s.title)}</h2><p class="muted small" style="margin:0">${state.place==='CASA'?'Casa':'Palestra'} · ${adaptive.availableMinutes} min · RIR ${currentReentry(date)?'2–4':'1–3'}</p></div><span class="pill ${reduced?'warn':''}">${esc(adaptive.adjust)}</span></div>
+  app.innerHTML=`<div class="stack"><section class="card"><div class="row"><div><h2>${esc(s.title)}</h2><p class="muted small" style="margin:0">${state.place==='CASA'?'Casa':'Palestra'} · ${adaptive.availableMinutes} min · RIR ${rir}${adaptive.preferredTime?` · ${esc(adaptive.preferredTime)}`:''}</p></div><span class="pill ${reduced?'warn':''}">${esc(adaptive.adjust)}</span></div>
     <div class="segment" style="margin-top:14px"><button class="${state.place==='CASA'?'active':''}" onclick="changeWorkoutPlace('CASA','${id}','${date}')">Casa</button><button class="${state.place==='PALESTRA'?'active':''}" onclick="changeWorkoutPlace('PALESTRA','${id}','${date}')">Palestra</button></div></section>
     <section class="card" id="exerciseList">${chosen.map((e,i)=>renderExercise(e,i,s,date,adaptive.setDelta)).join('')}</section>
     <section class="card"><label>Note<textarea id="sessionNote" placeholder="Solo se serve"></textarea></label><div class="actions"><button class="btn secondary" onclick="startTimer(120)">2:00</button><button class="btn" onclick="saveStrength('${id}','${date}')">Fine allenamento</button></div></section></div>`;
